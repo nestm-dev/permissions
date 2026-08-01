@@ -60,7 +60,7 @@ jobs:
       # Don't publish what doesn't pass.
       - run: pnpm run check
       - run: pnpm run build
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: packages/permissions-core/references/cedar-corpus
           key: cedar-corpus-75989795

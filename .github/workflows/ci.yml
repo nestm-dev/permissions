@@ -101,7 +101,7 @@ jobs:
       # the suite fails loudly without it rather than skipping. Cached on the
       # pinned corpus commit.
       - if: matrix.adapter == 'express'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: packages/permissions-core/references/cedar-corpus
           key: cedar-corpus-75989795
@@ -225,7 +225,7 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - run: ${{ matrix.command }}
       - run: pnpm run build
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: packages/permissions-core/references/cedar-corpus
           key: cedar-corpus-75989795
