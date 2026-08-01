@@ -1,0 +1,85 @@
+{
+	"name": "@nestm/permissions-core",
+	"version": "0.1.0-alpha.0",
+	"description": "Framework-free Cedar authorization engine, policy-store SPI and query-plan AST for @nestm/permissions.",
+	"license": "BSD-3-Clause",
+	"author": "nestm",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nestm-dev/permissions.git",
+		"directory": "packages/permissions-core"
+	},
+	"homepage": "https://github.com/nestm-dev/permissions/tree/main/packages/permissions-core#readme",
+	"bugs": {
+		"url": "https://github.com/nestm-dev/permissions/issues"
+	},
+	"keywords": [
+		"cedar",
+		"authorization",
+		"permissions",
+		"policy",
+		"abac",
+		"rbac",
+		"query-plan",
+		"esm",
+		"nestm"
+	],
+	"type": "module",
+	"sideEffects": false,
+	"engines": {
+		"node": ">=22.12.0"
+	},
+	"types": "./dist/index.d.mts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs",
+			"default": "./dist/index.mjs"
+		},
+		"./vocabulary": {
+			"types": "./dist/vocabulary.d.mts",
+			"import": "./dist/vocabulary.mjs",
+			"default": "./dist/vocabulary.mjs"
+		},
+		"./testing": {
+			"types": "./dist/testing.d.mts",
+			"import": "./dist/testing.mjs",
+			"default": "./dist/testing.mjs"
+		},
+		"./plan": {
+			"types": "./dist/plan.d.mts",
+			"import": "./dist/plan.mjs",
+			"default": "./dist/plan.mjs"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"CHANGELOG.md",
+		"LICENSE"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "tsdown",
+		"build:watch": "tsdown --watch src",
+		"typecheck": "tsc -b",
+		"lint": "oxlint --type-aware .",
+		"format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"*.config.ts\" package.json",
+		"format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"*.config.ts\" package.json",
+		"test": "vitest run",
+		"bench": "vitest bench --run",
+		"test:watch": "vitest",
+		"test:coverage": "vitest run --coverage",
+		"verify:pack": "pnpm run build && publint --strict",
+		"prepack": "pnpm run build"
+	},
+	"dependencies": {
+		"@cedar-policy/cedar-wasm": "4.12.0"
+	},
+	"devDependencies": {
+		"fast-check": "^4.9.0"
+	}
+}
