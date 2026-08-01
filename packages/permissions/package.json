@@ -1,0 +1,89 @@
+{
+	"name": "@nestm/permissions",
+	"version": "0.1.0-alpha.0",
+	"description": "Cedar-backed, policy-based authorization for NestJS 12 (ESM).",
+	"license": "BSD-3-Clause",
+	"author": "nestm",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nestm-dev/permissions.git",
+		"directory": "packages/permissions"
+	},
+	"homepage": "https://github.com/nestm-dev/permissions/tree/main/packages/permissions#readme",
+	"bugs": {
+		"url": "https://github.com/nestm-dev/permissions/issues"
+	},
+	"keywords": [
+		"nestjs",
+		"nestjs-12",
+		"authorization",
+		"permissions",
+		"cedar",
+		"policy",
+		"guard",
+		"esm",
+		"nestm"
+	],
+	"type": "module",
+	"sideEffects": false,
+	"engines": {
+		"node": ">=22.12.0"
+	},
+	"types": "./dist/index.d.mts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs",
+			"default": "./dist/index.mjs"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"CHANGELOG.md",
+		"LICENSE"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "tsdown",
+		"build:watch": "tsdown --watch src",
+		"typecheck": "tsc -b",
+		"lint": "oxlint --type-aware",
+		"lint:fix": "oxlint --type-aware --fix",
+		"format": "prettier --write . --ignore-unknown",
+		"format:check": "prettier --check . --ignore-unknown",
+		"check": "pnpm run lint && pnpm run format:check && pnpm run typecheck",
+		"test": "pnpm run test:express && pnpm run test:fastify",
+		"test:express": "TEST_HTTP_ADAPTER=express vitest run",
+		"test:fastify": "TEST_HTTP_ADAPTER=fastify vitest run",
+		"test:watch": "vitest",
+		"test:coverage": "vitest run --coverage",
+		"verify:pack": "pnpm run build && publint --strict",
+		"prepack": "pnpm run build"
+	},
+	"dependencies": {
+		"@nestm/permissions-core": "workspace:^"
+	},
+	"peerDependencies": {
+		"@nestjs/common": "^12.0.0-alpha.5",
+		"@nestjs/core": "^12.0.0-alpha.5",
+		"reflect-metadata": "^0.2.2",
+		"rxjs": "^7.8.1"
+	},
+	"devDependencies": {
+		"@nestjs/common": "12.0.0-alpha.5",
+		"@nestjs/core": "12.0.0-alpha.5",
+		"@nestjs/platform-express": "12.0.0-alpha.5",
+		"@nestjs/platform-fastify": "12.0.0-alpha.5",
+		"@nestjs/testing": "12.0.0-alpha.5",
+		"@types/supertest": "7.2.1",
+		"express": "5.2.1",
+		"fastify": "5.10.0",
+		"reflect-metadata": "0.2.2",
+		"rxjs": "7.8.2",
+		"supertest": "7.2.2"
+	}
+}
