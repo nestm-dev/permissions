@@ -1,0 +1,24 @@
+{
+	// Self-contained on purpose: this example is deliberately *not* a reference of
+	// the root solution tsconfig, so `tsc -b` at the repo root never builds it and
+	// a broken example can never break the packages' typecheck. Run
+	// `pnpm --filter @nestm/example-station-fastify run typecheck` to check it.
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		// `noEmit` and no `rootDir`: the typecheck pulls the workspace sources into
+		// the program through the `paths` below, which a rootDir would reject.
+		"noEmit": true,
+		// `paths` replaces rather than merges, so the base's three entries are
+		// repeated here. Mapping `@nestm/permissions` to its sources is what lets
+		// the example typecheck before `pnpm install` has linked the workspace; at
+		// build time tsdown keeps every `@nestm/*` import external, so the running
+		// app loads the real package.
+		"paths": {
+			"@nestm/permissions": ["../../packages/permissions/src/index.ts"],
+			"@nestm/permissions-core": ["../../packages/permissions-core/src/index.ts"],
+			"@nestm/permissions-core/plan": ["../../packages/permissions-core/src/plan.ts"],
+			"@nestm/permissions-core/testing": ["../../packages/permissions-core/src/testing.ts"]
+		}
+	},
+	"include": ["src", "*.config.ts"]
+}
