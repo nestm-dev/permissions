@@ -1,0 +1,52 @@
+{
+	"name": "permissions-workspace",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Workspace root for @nestm/permissions — Cedar-backed, policy-based authorization for NestJS.",
+	"license": "BSD-3-Clause",
+	"author": "nestm",
+	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/nestm-dev/permissions.git"
+	},
+	"homepage": "https://github.com/nestm-dev/permissions#readme",
+	"bugs": {
+		"url": "https://github.com/nestm-dev/permissions/issues"
+	},
+	"engines": {
+		"node": ">=22.12.0"
+	},
+	"packageManager": "pnpm@11.18.0",
+	"scripts": {
+		"build": "pnpm --filter \"./packages/*\" run build",
+		"clean": "node scripts/clean.mjs",
+		"lint": "oxlint --type-aware",
+		"lint:fix": "oxlint --type-aware --fix",
+		"format": "prettier --write . --ignore-unknown",
+		"format:check": "prettier --check . --ignore-unknown",
+		"typecheck": "tsc -b",
+		"typecheck:clean": "tsc -b --clean",
+		"test": "vitest run && pnpm --filter \"./packages/*\" run test",
+		"test:scripts": "vitest run",
+		"test:packages": "pnpm --filter \"./packages/*\" run test",
+		"check": "pnpm run lint && pnpm run format:check && pnpm run typecheck",
+		"verify:pack": "pnpm run build && pnpm --filter \"./packages/*\" exec publint --strict",
+		"assert:core-framework-free": "node scripts/assert-core-framework-free.mjs",
+		"changeset": "changeset",
+		"release": "node scripts/publish.mjs"
+	},
+	"devDependencies": {
+		"@arethetypeswrong/cli": "0.18.5",
+		"@changesets/cli": "2.31.1",
+		"@types/node": "26.1.2",
+		"@vitest/coverage-v8": "4.1.10",
+		"oxlint": "1.76.0",
+		"oxlint-tsgolint": "7.0.2001",
+		"prettier": "3.9.6",
+		"publint": "0.3.22",
+		"tsdown": "0.22.14",
+		"typescript": "6.0.2",
+		"vitest": "4.1.10"
+	}
+}

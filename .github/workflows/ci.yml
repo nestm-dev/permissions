@@ -1,0 +1,237 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run format:check
+      # Solution-style `tsc -b` across the four package projects.
+      - run: pnpm run typecheck
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - permissions-core
+          - permissions
+          - permissions-typeorm
+          - permissions-drizzle
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # `...<name>` builds the package's workspace dependencies first.
+      - run: pnpm --filter "...@nestm/${{ matrix.package }}" run build
+      - run: pnpm dlx publint --strict packages/${{ matrix.package }}
+      - run: pnpm dlx @arethetypeswrong/cli --pack packages/${{ matrix.package }} --profile esm-only
+      # Guards the silent-decorator-metadata-loss class of bundler bug: an emitted
+      # `@Module()`/`@Injectable()` class whose `design:paramtypes` was dropped
+      # constructs with `undefined` dependencies rather than failing to build.
+      - if: matrix.package == 'permissions'
+        run: |
+          node -e "
+            const source = require('node:fs').readFileSync('packages/permissions/dist/index.mjs', 'utf8');
+            if (!source.includes('design:paramtypes')) {
+              throw new Error('decorator metadata missing from build output');
+            }
+          "
+      # Both drivers' `./nestjs` entries do emit decorated classes with constructor
+      # DI (`PermissionsDrizzleModule`/`PermissionsTypeOrmModule` take the store),
+      # so the same guard applies to them — verified against the built output, not
+      # assumed. Their base entries have no DI and are deliberately not checked.
+      - if: matrix.package == 'permissions-drizzle' || matrix.package == 'permissions-typeorm'
+        run: |
+          node -e "
+            const entry = 'packages/${{ matrix.package }}/dist/nestjs.mjs';
+            const source = require('node:fs').readFileSync(entry, 'utf8');
+            if (!source.includes('design:paramtypes')) {
+              throw new Error('decorator metadata missing from ' + entry);
+            }
+          "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.package }}
+          path: packages/${{ matrix.package }}/dist
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+        # @nestm/permissions boots a real HTTP server in its e2e harness, and the
+        # two adapters differ in exactly the places a guard touches: request
+        # shape, param parsing and how an exception filter serialises. Running
+        # both is the only way that stays true.
+        adapter: [express, fastify]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with: { node-version: "${{ matrix.node }}", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      # Core, the root script specs and the drivers' unit suites do not know what
+      # an HTTP adapter is, so they run once per node version rather than twice.
+      # `PG_SKIP` is deliberate: the drivers' integration and property suites are
+      # differential against a real server and belong to `test-drivers`, which has
+      # one. Skipping is opt-in and loud, never the default.
+      - if: matrix.adapter == 'express'
+        run: pnpm run test:scripts
+      - if: matrix.adapter == 'express'
+        run: pnpm --filter @nestm/permissions-core run test
+        env: { CI: "true" }
+      - if: matrix.adapter == 'express'
+        run: pnpm --filter @nestm/permissions-drizzle --filter @nestm/permissions-typeorm run test
+        env: { CI: "true", PG_SKIP: "1" }
+      - run: pnpm --filter @nestm/permissions run "test:${{ matrix.adapter }}"
+        env: { CI: "true" }
+
+  # The drivers' real suites: three-way differential (Cedar vs core's interpreter
+  # vs Postgres), LIKE fuzz, the RLS harness, the injection corpus and the store
+  # conformance suite. None of them is meaningful without a server, and a suite
+  # that silently skipped would report green while nobody checked.
+  test-drivers:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: nestm_permissions
+          POSTGRES_USER: nestm
+          POSTGRES_PASSWORD: nestm
+          # Mirrors the repo's compose.yaml: the suites create and drop tables
+          # constantly and the data is worthless, and trusting local connections
+          # keeps the RLS harness readable (it switches roles with SET ROLE).
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nestm -d nestm_permissions"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 5s
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @nestm/permissions-drizzle --filter @nestm/permissions-typeorm run test
+        env:
+          CI: "true"
+          PG_URL: postgres://nestm:nestm@localhost:5432/nestm_permissions
+
+  # Two mechanisms, because a transitive leak is invisible to a grep: the static
+  # guard, then a black-box install of the packed tarball into a directory with
+  # zero @nestjs packages.
+  core-framework-free:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/assert-core-framework-free.mjs
+      - name: Pack @nestm/permissions-core
+        working-directory: packages/permissions-core
+        run: pnpm pack --pack-destination "$RUNNER_TEMP"
+      - name: Import the tarball from a bare directory
+        run: |
+          mkdir -p "$RUNNER_TEMP/bare"
+          cd "$RUNNER_TEMP/bare"
+          npm init -y > /dev/null
+          npm install "$RUNNER_TEMP"/nestm-permissions-core-*.tgz --no-audit --no-fund
+          if [ -d node_modules/@nestjs ]; then
+            echo "::error::@nestjs packages reached a bare install of @nestm/permissions-core"
+            exit 1
+          fi
+          node --input-type=module -e "
+            const core = await import('@nestm/permissions-core');
+            if (typeof core.PACKAGE_NAME !== 'string') {
+              throw new Error('@nestm/permissions-core barrel produced no exports');
+            }
+          "
+
+  # Non-blocking early warnings. The cedar canary is load-bearing:
+  # isAuthorizedPartial is experimental and its residual shapes are unversioned.
+  canary:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: nest-next
+            command: pnpm --recursive up "@nestjs/*@next"
+          - name: cedar-latest
+            command: pnpm --recursive up @cedar-policy/cedar-wasm@latest
+    # The canary runs the whole workspace suite, which now includes the drivers'
+    # differential tests — and those are the *most* load-bearing part of the cedar
+    # canary, because a changed residual shape shows up there as rows Postgres
+    # selects and Cedar does not. Skipping them here would leave the canary
+    # watching the least sensitive half of the codebase.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: nestm_permissions
+          POSTGRES_USER: nestm
+          POSTGRES_PASSWORD: nestm
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nestm -d nestm_permissions"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 5s
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      - run: pnpm install --no-frozen-lockfile
+      - run: ${{ matrix.command }}
+      - run: pnpm run build
+      - run: pnpm run test
+        env:
+          PG_URL: postgres://nestm:nestm@localhost:5432/nestm_permissions
+
+  # Detects when the Nest 12 alphas fix their ^11 sibling peers: emits a warning
+  # annotation the day a plain `npm install` starts succeeding, so the ERESOLVE
+  # workarounds (pnpm-workspace.yaml, README) can be removed.
+  npm-peer-smoke:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/setup-node@v5
+        with: { node-version: 24 }
+      - run: |
+          mkdir smoke && cd smoke && npm init -y > /dev/null
+          if npm install @nestjs/common@next @nestjs/core@next @nestjs/platform-express@next reflect-metadata rxjs --no-audit --no-fund; then
+            echo "::warning::Nest 12 alpha sibling peers appear FIXED — remove the ERESOLVE workarounds (pnpm-workspace.yaml, README)."
+          else
+            echo "npm ERESOLVE still present (expected while Nest 12 alphas declare ^11 sibling peers)."
+          fi

@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    # Root holds the shared toolchain; each package holds its own peers/devDeps.
+    directories:
+      - /
+      - /packages/*
+    schedule:
+      interval: weekly
+    groups:
+      nestjs:
+        patterns:
+          - "@nestjs/*"
+      # Cedar's partial-evaluation residual shapes are experimental and
+      # unversioned: every bump is reviewed as one deliberate change.
+      cedar:
+        patterns:
+          - "@cedar-policy/*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

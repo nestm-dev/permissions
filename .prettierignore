@@ -1,0 +1,10 @@
+dist
+dist-tsc
+coverage
+pnpm-lock.yaml
+references
+docs
+CHANGELOG.md
+.changeset/
+examples/**/dist
+examples/**/node_modules

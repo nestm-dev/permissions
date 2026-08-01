@@ -1,0 +1,9 @@
+{
+	"files": [],
+	"references": [
+		{ "path": "./packages/permissions-core" },
+		{ "path": "./packages/permissions" },
+		{ "path": "./packages/permissions-typeorm" },
+		{ "path": "./packages/permissions-drizzle" }
+	]
+}

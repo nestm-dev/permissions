@@ -1,0 +1,39 @@
+# Local Postgres for the driver packages' integration suites.
+#
+# The driver test suites are *differential*: they compile a query plan to SQL and
+# assert the rows Postgres returns are exactly the rows Cedar authorizes. That is
+# only meaningful against a real server — SQL's three-valued NULL logic, `LIKE …
+# ESCAPE`, `inet` equality and `numeric` comparison are the four places a mock
+# would agree with a wrong implementation. Testcontainers is deliberately not
+# used: a compose file and a CI `services:` block already give the same thing
+# without an extra heavyweight devDependency.
+#
+# Port 55433 rather than 5432 (or 55432): both are commonly taken by a developer's
+# other stacks, and a suite that silently connects to the wrong database is worse
+# than one that fails to connect at all.
+#
+#   docker compose up -d
+#   PG_URL=postgres://nestm:nestm@localhost:55433/nestm_permissions \
+#     pnpm --filter @nestm/permissions-drizzle run test
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: nestm-permissions-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nestm_permissions
+      POSTGRES_USER: nestm
+      POSTGRES_PASSWORD: nestm
+      # The suites create and drop tables constantly and the data is worthless;
+      # trusting local connections keeps the RLS harness readable (it switches
+      # roles with SET ROLE rather than juggling passwords).
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "55433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nestm -d nestm_permissions"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s

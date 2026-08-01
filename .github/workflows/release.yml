@@ -1,0 +1,79 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+concurrency: release-${{ github.ref }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # The npm trusted publisher for each of the four packages must be bound to
+    # this environment, which ties the provenance attestation to it.
+    environment: release
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v4
+      # NOTE: never set `registry-url` on setup-node — it writes an _authToken
+      # line to .npmrc that defeats npm trusted publishing (OIDC).
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: pnpm }
+      # `changeset publish` shells out to `pnpm publish` (not the npm CLI), so
+      # OIDC trusted publishing comes from pnpm's native implementation —
+      # which requires pnpm >= 11.11 (11.0.x had a broken OIDC exchange).
+      # packageManager pins 11.18.0; this guard catches accidental downgrades.
+      - name: Assert pnpm supports native OIDC publishing
+        run: |
+          node -e '
+            const [major, minor] = require("child_process")
+              .execSync("pnpm --version").toString().trim().split(".").map(Number);
+            if (major < 11 || (major === 11 && minor < 11)) {
+              throw new Error("pnpm >= 11.11 required for OIDC trusted publishing");
+            }
+          '
+      - run: pnpm install --frozen-lockfile
+      # Don't publish what doesn't pass.
+      - run: pnpm run check
+      - run: pnpm run build
+      - run: pnpm run test
+      - run: node scripts/assert-core-framework-free.mjs
+      - name: Create release PR or publish to npm
+        id: changesets
+        uses: changesets/action@v1
+        with:
+          # With pending changesets: opens/updates the "Version Packages" PR.
+          # When that PR is merged (no pending changesets left): the hardened
+          # wrapper validates the fixed-group versions against
+          # `.changeset/pre.json`, then publishes via pnpm's OIDC trusted
+          # publishing (provenance enforced in pnpm-workspace.yaml).
+          publish: pnpm run release
+          version: pnpm changeset version
+          title: "chore: release @nestm/permissions"
+          commit: "chore: release @nestm/permissions"
+          createGithubReleases: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # `changeset publish` pushes tags only after a successful npm publish; if
+      # the run dies between the two, the tags would be lost. Idempotent
+      # reconciliation across every publishable package in the fixed group.
+      - name: Reconcile git tags with npm
+        if: always()
+        run: |
+          for MANIFEST in packages/*/package.json; do
+            NAME=$(node -p "require('./$MANIFEST').name")
+            VERSION=$(node -p "require('./$MANIFEST').version")
+            PRIVATE=$(node -p "require('./$MANIFEST').private === true")
+            if [ "$PRIVATE" = "true" ]; then continue; fi
+            TAG="$NAME@$VERSION"
+            if npm view "$NAME@$VERSION" version > /dev/null 2>&1; then
+              git tag "$TAG" 2> /dev/null && git push origin "$TAG" || true
+            fi
+          done

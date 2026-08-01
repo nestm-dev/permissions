@@ -1,0 +1,40 @@
+{
+	"compilerOptions": {
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"target": "es2023",
+		"lib": ["es2023"],
+		"types": ["node"],
+
+		"experimentalDecorators": true,
+		"emitDecoratorMetadata": true,
+
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": false,
+		"noImplicitOverride": true,
+		"noFallthroughCasesInSwitch": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"forceConsistentCasingInFileNames": true,
+
+		"verbatimModuleSyntax": false,
+		"isolatedModules": true,
+		"skipLibCheck": true,
+
+		"allowImportingTsExtensions": true,
+		"rewriteRelativeImportExtensions": true,
+
+		"paths": {
+			"@nestm/permissions-core": ["./packages/permissions-core/src/index.ts"],
+			"@nestm/permissions-core/plan": ["./packages/permissions-core/src/plan.ts"],
+			"@nestm/permissions-core/vocabulary": ["./packages/permissions-core/src/vocabulary.ts"],
+			"@nestm/permissions-core/testing": ["./packages/permissions-core/src/testing.ts"]
+		},
+
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+		"removeComments": false
+	}
+}

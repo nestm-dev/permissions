@@ -1,0 +1,11 @@
+{
+	"mode": "pre",
+	"tag": "alpha",
+	"initialVersions": {
+		"@nestm/permissions-core": "0.1.0-alpha.0",
+		"@nestm/permissions": "0.1.0-alpha.0",
+		"@nestm/permissions-typeorm": "0.1.0-alpha.0",
+		"@nestm/permissions-drizzle": "0.1.0-alpha.0"
+	},
+	"changesets": []
+}
