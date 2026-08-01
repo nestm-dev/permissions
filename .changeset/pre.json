@@ -1,11 +1,14 @@
 {
-	"mode": "pre",
-	"tag": "alpha",
-	"initialVersions": {
-		"@nestm/permissions-core": "0.1.0-alpha.0",
-		"@nestm/permissions": "0.1.0-alpha.0",
-		"@nestm/permissions-typeorm": "0.1.0-alpha.0",
-		"@nestm/permissions-drizzle": "0.1.0-alpha.0"
-	},
-	"changesets": []
+  "mode": "pre",
+  "tag": "alpha",
+  "initialVersions": {
+    "@nestm/permissions-core": "0.1.0-alpha.0",
+    "@nestm/permissions": "0.1.0-alpha.0",
+    "@nestm/permissions-typeorm": "0.1.0-alpha.0",
+    "@nestm/permissions-drizzle": "0.1.0-alpha.0",
+    "@nestm/example-station-fastify": "0.0.0"
+  },
+  "changesets": [
+    "initial-alpha-release"
+  ]
 }
