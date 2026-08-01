@@ -14,7 +14,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
@@ -35,7 +35,7 @@ jobs:
           - permissions-typeorm
           - permissions-drizzle
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
@@ -85,7 +85,7 @@ jobs:
         # both is the only way that stays true.
         adapter: [express, fastify]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with: { node-version: "${{ matrix.node }}", cache: pnpm }
@@ -141,7 +141,7 @@ jobs:
           --health-retries 30
           --health-start-period 5s
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
@@ -157,7 +157,7 @@ jobs:
   core-framework-free:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
@@ -218,7 +218,7 @@ jobs:
           --health-retries 30
           --health-start-period 5s
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
