@@ -18,6 +18,23 @@ jobs:
     # The npm trusted publisher for each of the four packages must be bound to
     # this environment, which ties the provenance attestation to it.
     environment: release
+    # `pnpm run test` is the whole workspace, which includes the drivers'
+    # integration and differential suites — those need a real Postgres.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: nestm_permissions
+          POSTGRES_USER: nestm
+          POSTGRES_PASSWORD: nestm
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nestm -d nestm_permissions"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+          --health-start-period 5s
     steps:
       - uses: actions/checkout@v5
         with: { fetch-depth: 0 }
@@ -43,7 +60,14 @@ jobs:
       # Don't publish what doesn't pass.
       - run: pnpm run check
       - run: pnpm run build
+      - uses: actions/cache@v4
+        with:
+          path: packages/permissions-core/references/cedar-corpus
+          key: cedar-corpus-75989795
+      - run: node scripts/fetch-cedar-corpus.mjs
       - run: pnpm run test
+        env:
+          PG_URL: postgres://nestm:nestm@localhost:5432/nestm_permissions
       - run: node scripts/assert-core-framework-free.mjs
       - name: Create release PR or publish to npm
         id: changesets
