@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -36,7 +36,7 @@ jobs:
           - permissions-drizzle
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -86,7 +86,7 @@ jobs:
         adapter: [express, fastify]
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
         with: { node-version: "${{ matrix.node }}", cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -132,7 +132,7 @@ jobs:
           --health-start-period 5s
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -148,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --frozen-lockfile
@@ -209,7 +209,7 @@ jobs:
           --health-start-period 5s
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v5
         with: { node-version: 24, cache: pnpm }
       - run: pnpm install --no-frozen-lockfile
