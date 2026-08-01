@@ -24,14 +24,7 @@
 		"no-console": "error",
 		"import/no-default-export": "error"
 	},
-	"ignorePatterns": [
-		"dist",
-		"dist-tsc",
-		"coverage",
-		"examples",
-		"references",
-		"docs/station-migration/files/**"
-	],
+	"ignorePatterns": ["dist", "dist-tsc", "coverage", "examples", "references"],
 	"overrides": [
 		{
 			"files": ["*.config.ts"],
