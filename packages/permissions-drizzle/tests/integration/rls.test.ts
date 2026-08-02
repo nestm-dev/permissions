@@ -26,14 +26,22 @@
 
 import type { PolicyRecord, TemplateLinkRecord } from "@nestm/permissions-core";
 import { sql } from "drizzle-orm";
-import { pgPolicy, type PgColumn, type PgTableExtraConfigValue } from "drizzle-orm/pg-core";
+import {
+	pgPolicy,
+	type PgColumn,
+	type PgTableExtraConfigValue,
+	type PgTransactionConfig,
+} from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
 	permissionsPostgresPolicyStatements,
 	type RawPermissionsTables,
 } from "../../src/schema.ts";
-import { DrizzlePolicyStore } from "../../src/store/drizzle-policy-store.ts";
+import {
+	DrizzlePolicyStore,
+	type DrizzlePolicyStoreExecutor,
+} from "../../src/store/drizzle-policy-store.ts";
 import { provisionPermissionsSchema, type ProvisionedSchema } from "../../src/testing.ts";
 import { PG_SKIPPED, PG_URL, assertPostgresReachable, uniqueSuffix } from "../fixtures/pg.ts";
 import { scopeToUuid, stationScopeColumn } from "../fixtures/station-scope.ts";
@@ -126,26 +134,43 @@ describe.skipIf(PG_SKIPPED)("row-level security harness", () => {
 	});
 
 	/**
-	 * Runs `body` as the application role, inside one transaction, with the tenant
-	 * context set exactly as station's `withOrganizationContext` does.
+	 * Runs store work as the application role, with a request-aware executor that
+	 * owns each real transaction and sets the tenant context on its pinned handle.
 	 *
-	 * A store built over the transaction handle rather than the pool is not a test
-	 * shortcut — it is the only correct wiring under RLS. `set_config(…, true)` is
-	 * transaction-local, so a store issuing its statements on a *different* pooled
-	 * connection would see no context and read nothing.
+	 * The store itself receives the pool so its default path cannot mistake an
+	 * ambient savepoint for a commit. `set_config(…, true)` remains transaction-local
+	 * and the executor hands the exact configured transaction to store work.
 	 */
 	async function asTenant<T>(
 		scope: string | undefined,
 		body: (store: DrizzlePolicyStore) => Promise<T>,
 	): Promise<T> {
-		return provisioned.db.transaction(async (tx) => {
-			await tx.execute(sql.raw(`set local role "${ROLE}"`));
-			if (scope !== undefined) {
-				await tx.execute(sql`select set_config(${SETTING}, ${scopeToUuid(scope)}, true)`);
-			}
-			const store = new DrizzlePolicyStore(tx, provisioned.schema, { poll: false });
-			return body(store);
+		const executor: DrizzlePolicyStoreExecutor = {
+			run: (execution, work) =>
+				provisioned.db.transaction(
+					async (tx) => {
+						await tx.execute(sql.raw(`set local role "${ROLE}"`));
+						if (scope !== undefined) {
+							const value = scope === "" ? "" : scopeToUuid(scope);
+							await tx.execute(sql`select set_config(${SETTING}, ${value}, true)`);
+						}
+						return work(tx);
+					},
+					{
+						accessMode: execution.access === "read-only" ? "read only" : "read write",
+						isolationLevel: execution.isolationLevel,
+					},
+				),
+		};
+		const store = new DrizzlePolicyStore(provisioned.db, provisioned.schema, {
+			executor,
+			poll: false,
 		});
+		try {
+			return await body(store);
+		} finally {
+			await store.dispose();
+		}
 	}
 
 	// -------------------------------------------------------------------------
@@ -200,6 +225,66 @@ describe.skipIf(PG_SKIPPED)("row-level security harness", () => {
 
 		expect(bundle.policies.map((record) => record.id)).toEqual(["b-template", "b1"]);
 		expect(bundle.links.map((record) => record.id)).toEqual(["b-link"]);
+	});
+
+	it("keeps one singleton store RLS-safe through a request-aware executor", async () => {
+		let activeScope = ORG_A;
+		const executor: DrizzlePolicyStoreExecutor = {
+			run: async (execution, work) => {
+				if (
+					execution.scopes.length === 0 ||
+					execution.scopes.some((scope) => scope === "" || scope !== activeScope)
+				) {
+					throw new Error(
+						`Policy-store ${execution.operation} requested scopes outside ${activeScope}: ${execution.scopes.join(", ")}`,
+					);
+				}
+				const config: PgTransactionConfig = {
+					accessMode: execution.access === "read-only" ? "read only" : "read write",
+					isolationLevel: execution.isolationLevel,
+				};
+				return provisioned.db.transaction(async (tx) => {
+					await tx.execute(sql.raw(`set local role "${ROLE}"`));
+					await tx.execute(sql`select set_config(${SETTING}, ${scopeToUuid(activeScope)}, true)`);
+					return work(tx);
+				}, config);
+			},
+		};
+		const store = new DrizzlePolicyStore(provisioned.db, provisioned.schema, {
+			executor,
+			poll: false,
+		});
+
+		try {
+			await expect(
+				executor.run(
+					{
+						operation: "load",
+						access: "read-only",
+						isolationLevel: "repeatable read",
+						commitOwnership: "not-required",
+						scopes: ["", ORG_A],
+					},
+					() => undefined,
+				),
+			).rejects.toThrowError(/requested scopes outside orgA/);
+
+			const a = await store.load(ORG_A);
+			expect(a.policies.map((record) => record.id)).toEqual(["a-template", "a1"]);
+
+			// The store itself is unchanged; only the executor's request context moves.
+			activeScope = ORG_B;
+			const b = await store.load(ORG_B);
+			expect(b.policies.map((record) => record.id)).toEqual(["b-template", "b1"]);
+
+			// Reject the mismatch before SQL instead of interpreting an empty RLS result
+			// as a legitimate empty policy bundle.
+			await expect(store.load(ORG_A)).rejects.toThrowError(
+				/Policy-store load requested scopes outside orgB: orgA/,
+			);
+		} finally {
+			await store.dispose();
+		}
 	});
 
 	it("returns nothing when asked for another tenant from inside a context", async () => {
@@ -261,12 +346,7 @@ describe.skipIf(PG_SKIPPED)("row-level security harness", () => {
 		// `nullif(current_setting(…), '')::uuid` is NULL, and `col = NULL` is NULL,
 		// which excludes the row. An implementation that cast `''` directly would
 		// raise instead — also safe, but the harness pins which one happens.
-		const bundle = await provisioned.db.transaction(async (tx) => {
-			await tx.execute(sql.raw(`set local role "${ROLE}"`));
-			await tx.execute(sql`select set_config(${SETTING}, ${""}, true)`);
-			const store = new DrizzlePolicyStore(tx, provisioned.schema, { poll: false });
-			return store.load(ORG_A);
-		});
+		const bundle = await asTenant("", (store) => store.load(ORG_A));
 
 		expect(bundle.policies).toEqual([]);
 	});
@@ -318,7 +398,7 @@ describe.skipIf(PG_SKIPPED)("row-level security harness", () => {
 	// -------------------------------------------------------------------------
 
 	it("keeps the scope-versions table readable with no context — the approved carve-out", async () => {
-		// The invalidation poller runs `SELECT scope, version … WHERE updated_at > $1`
+		// The invalidation poller runs `SELECT scope, version …`
 		// with **no** tenant context. Under RLS that would return zero rows and no
 		// cache would ever invalidate. The table holds no tenant *data* — only a
 		// monotonic counter keyed by tenant id — so it is deliberately left

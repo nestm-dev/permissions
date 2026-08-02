@@ -54,8 +54,8 @@ export interface PermissionsDrizzleModuleOptions {
 	 * Typed as the `PgDatabase` supertype the store itself uses, so a `drizzle()`
 	 * from any pg driver fits without a cast. A `transaction()` handle also fits
 	 * structurally and must not be passed *here* — the module's store outlives any
-	 * transaction. Pass one to `new DrizzlePolicyStore(tx, …)` directly instead,
-	 * which is the RLS shape the README documents.
+	 * transaction. Under transaction-local RLS, pass the pool here and configure
+	 * `store.executor` with the request-aware transaction executor.
 	 */
 	readonly db: DrizzlePolicyStoreDatabase;
 	/** The three tables, from `createPermissionsSchema` or re-assembled from consts. */

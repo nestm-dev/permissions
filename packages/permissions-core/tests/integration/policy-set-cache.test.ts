@@ -237,6 +237,74 @@ class FlakyStore implements PolicyStore {
 	}
 }
 
+interface Deferred {
+	readonly promise: Promise<void>;
+	resolve(): void;
+}
+
+function deferred(): Deferred {
+	let resolvePromise: (() => void) | undefined;
+	const promise = new Promise<void>((resolve) => {
+		resolvePromise = resolve;
+	});
+	return {
+		promise,
+		resolve(): void {
+			resolvePromise?.();
+		},
+	};
+}
+
+/** Delegating watched store that can pause one load after taking its snapshot. */
+class GatedLoadStore implements PolicyStore {
+	loads = 0;
+	#nextGate: { readonly started: Deferred; readonly release: Deferred } | undefined;
+
+	constructor(readonly inner: MemoryPolicyStore) {}
+
+	gateNextLoad(): { readonly started: Deferred; readonly release: Deferred } {
+		const gate = { started: deferred(), release: deferred() };
+		this.#nextGate = gate;
+		return gate;
+	}
+
+	async load(scope: PolicyScopeId): Promise<PolicyBundle> {
+		this.loads += 1;
+		const bundle = await this.inner.load(scope);
+		const gate = this.#nextGate;
+		if (gate !== undefined) {
+			this.#nextGate = undefined;
+			gate.started.resolve();
+			await gate.release.promise;
+		}
+		return bundle;
+	}
+
+	async currentVersion(scope: PolicyScopeId): Promise<string> {
+		return this.inner.currentVersion(scope);
+	}
+
+	async save(policies: readonly PolicyRecord[]): Promise<void> {
+		return this.inner.save(policies);
+	}
+
+	async delete(scope: PolicyScopeId, ids: readonly string[]): Promise<void> {
+		return this.inner.delete(scope, ids);
+	}
+
+	async linkTemplate(link: TemplateLinkRecord): Promise<void> {
+		return this.inner.linkTemplate(link);
+	}
+
+	async unlinkTemplate(scope: PolicyScopeId, linkId: string): Promise<void> {
+		return this.inner.unlinkTemplate(scope, linkId);
+	}
+
+	watch(listener: PolicyChangeListener): Unsubscribe {
+		return this.inner.watch(listener);
+	}
+}
+
 beforeAll(async () => {
 	cedar = await loadCedar();
 	schemaName = new SchemaCache().ensure(
@@ -468,6 +536,50 @@ describe("single flight", () => {
 		expect(new Set(handles.map((handle) => handle.version)).size).toBe(1);
 		expect(new Set(handles.map((handle) => handle.psetId)).size).toBe(1);
 		expect(cache.stats().inFlight).toBe(0);
+	});
+
+	it("retries a cold load invalidated for its scope before preparing it", async () => {
+		const inner = seedStore();
+		const store = new GatedLoadStore(inner);
+		const cache = createCache(store);
+		const gate = store.gateNextLoad();
+
+		const ensuring = cache.ensure(TENANT);
+		await gate.started.promise;
+		await inner.unlinkTemplate(TENANT, "grant:m1-p1");
+		gate.release.resolve();
+
+		const handle = await ensuring;
+		expect(store.loads).toBe(2);
+		expect(handle.version).toBe(await inner.currentVersion(TENANT));
+		expect(
+			authorize(handle.psetId, ref("Member", "m1"), "run:read", ref("Run", "r1")).decision,
+		).toBe("deny");
+	});
+
+	it("retries a blocked reload when a '*' invalidation changes its global bundle", async () => {
+		const inner = seedStore();
+		const store = new GatedLoadStore(inner);
+		const cache = createCache(store);
+		await cache.ensure(TENANT);
+
+		cache.invalidate(TENANT);
+		const gate = store.gateNextLoad();
+		const ensuring = cache.ensure(TENANT);
+		await gate.started.promise;
+		await inner.save([
+			policyRecordFromText(cedar, {
+				id: "global:race",
+				scope: "",
+				text: "permit(principal, action, resource) when { false };",
+			}),
+		]);
+		gate.release.resolve();
+
+		const handle = await ensuring;
+		expect(store.loads).toBe(3);
+		expect(handle.version).toBe(await inner.currentVersion(TENANT));
+		expect(cache.peek(TENANT)?.stale).toBe(false);
 	});
 });
 

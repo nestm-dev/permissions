@@ -18,14 +18,16 @@ class CustomStore extends MemoryPolicyStore {}
 interface ModuleRefDouble {
 	readonly ref: ModuleRef;
 	readonly get: ReturnType<typeof vi.fn>;
+	readonly resolve: ReturnType<typeof vi.fn>;
 	readonly create: ReturnType<typeof vi.fn>;
 }
 
-/** A `ModuleRef` double: only `get` and `create` are ever reached. */
-function moduleRefDouble(resolved?: unknown): ModuleRefDouble {
-	const get = vi.fn(() => resolved);
+/** A `ModuleRef` double exposing the three resolution paths used by the module. */
+function moduleRefDouble(existing?: unknown, asynchronouslyResolved?: unknown): ModuleRefDouble {
+	const get = vi.fn(() => existing);
+	const resolve = vi.fn(async () => asynchronouslyResolved);
 	const create = vi.fn(async (type: new () => unknown) => new type());
-	return { ref: { get, create } as unknown as ModuleRef, get, create };
+	return { ref: { get, resolve, create } as unknown as ModuleRef, get, resolve, create };
 }
 
 const base: PermissionsModuleOptions = { vocabulary: testVocabulary };
@@ -74,6 +76,21 @@ describe("policy store definition matrix", () => {
 
 		expect(store).toBe(existing);
 		expect(withExisting.get).toHaveBeenCalledWith(token, { strict: false });
+		expect(withExisting.resolve).not.toHaveBeenCalled();
+	});
+
+	it("awaits { useExisting } when a sibling provider is not instantiated yet", async () => {
+		const existing = new MemoryPolicyStore();
+		const token = Symbol("ASYNC_EXISTING_STORE");
+		const withExisting = moduleRefDouble(undefined, existing);
+
+		const store = await resolvePolicyStore(
+			{ ...base, store: { useExisting: token } },
+			withExisting.ref,
+		);
+
+		expect(store).toBe(existing);
+		expect(withExisting.resolve).toHaveBeenCalledWith(token, undefined, { strict: false });
 	});
 
 	it("calls { useFactory } with its injected dependencies", async () => {
@@ -90,6 +107,34 @@ describe("policy store definition matrix", () => {
 		expect(store).toBe(injected);
 		expect(useFactory).toHaveBeenCalledWith(injected);
 		expect(withDependency.get).toHaveBeenCalledWith(token, { strict: false });
+		expect(withDependency.resolve).not.toHaveBeenCalled();
+	});
+
+	it("awaits nullish { useFactory } dependencies from sibling modules", async () => {
+		const first = Symbol("FIRST_DEP");
+		const second = Symbol("SECOND_DEP");
+		const firstDependency = { name: "first" };
+		const secondDependency = { name: "second" };
+		const get = vi.fn((token: symbol) => (token === first ? firstDependency : undefined));
+		const resolve = vi.fn(async (token: symbol) =>
+			token === second ? secondDependency : undefined,
+		);
+		const ref = { get, resolve, create: vi.fn() } as unknown as ModuleRef;
+		const useFactory = vi.fn((left: typeof firstDependency, right: typeof secondDependency) => {
+			void left;
+			void right;
+			return new MemoryPolicyStore();
+		});
+
+		const store = await resolvePolicyStore(
+			{ ...base, store: { useFactory: useFactory as never, inject: [first, second] } },
+			ref,
+		);
+
+		expect(store).toBeInstanceOf(MemoryPolicyStore);
+		expect(useFactory).toHaveBeenCalledWith(firstDependency, secondDependency);
+		expect(resolve).toHaveBeenCalledTimes(1);
+		expect(resolve).toHaveBeenCalledWith(second, undefined, { strict: false });
 	});
 
 	it("rejects a factory that resolves to nothing", async () => {

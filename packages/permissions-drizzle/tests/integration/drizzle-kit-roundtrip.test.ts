@@ -64,7 +64,7 @@ describe("drizzle-kit export shapes", () => {
 
 		const createTables = statements.filter((statement) => statement.startsWith("CREATE TABLE"));
 		expect(createTables).toHaveLength(3);
-		expect(statements.filter((statement) => statement.startsWith("CREATE INDEX"))).toHaveLength(4);
+		expect(statements.filter((statement) => statement.startsWith("CREATE INDEX"))).toHaveLength(3);
 	});
 
 	it("produces an EMPTY migration from a nested object — the documented footgun", async () => {
@@ -123,8 +123,9 @@ describe("generated DDL", () => {
 		// The load path's partial index, and the admin API's GIN index.
 		expect(ddl).toContain(`WHERE "${PREFIX}policies"."enabled"`);
 		expect(ddl).toContain('USING gin ("cedar_json" jsonb_path_ops)');
-		// The poller's only query is `updated_at > $since`.
-		expect(ddl).toContain(`ON "${PREFIX}scope_versions" USING btree ("updated_at")`);
+		// Polling compares the monotonic counter for every primary-keyed scope; a
+		// timestamp index would add write cost without serving a query.
+		expect(ddl).not.toContain(`ON "${PREFIX}scope_versions" USING btree ("updated_at")`);
 	});
 
 	it("emits NO foreign key from links.template_id to policies.policy_id", async () => {

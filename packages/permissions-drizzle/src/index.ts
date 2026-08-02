@@ -51,7 +51,13 @@ export {
 
 export {
 	DrizzlePolicyStore,
+	type DrizzlePolicyStoreAccess,
+	type DrizzlePolicyStoreCommitOwnership,
 	type DrizzlePolicyStoreDatabase,
+	type DrizzlePolicyStoreExecution,
+	type DrizzlePolicyStoreExecutor,
+	type DrizzlePolicyStoreIsolationLevel,
+	type DrizzlePolicyStoreOperation,
 	type DrizzlePolicyStoreOptions,
 } from "./store/drizzle-policy-store.ts";
 

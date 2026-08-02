@@ -14,7 +14,10 @@ import type {
 	TemplateLinkRecord,
 } from "@nestm/permissions-core";
 
-import { resolveProviderDefinition } from "../internal/definition-resolver.ts";
+import {
+	PROVIDER_DEFINITION_DEPENDENCIES_READY,
+	resolveProviderDefinition,
+} from "../internal/definition-resolver.ts";
 import { PERMISSIONS_MODULE_OPTIONS, POLICY_STORE } from "../permissions.tokens.ts";
 import type {
 	PermissionsModuleOptions,
@@ -101,7 +104,14 @@ export async function resolvePolicyStore(
 /** `POLICY_STORE` — the resolved policy store for this module registration. */
 export const policyStoreProvider: FactoryProvider<Promise<PolicyStore>> = {
 	provide: POLICY_STORE,
-	inject: [PERMISSIONS_MODULE_OPTIONS, ModuleRef],
-	useFactory: async (options: PermissionsModuleOptions, moduleRef: ModuleRef) =>
-		resolvePolicyStore(options, moduleRef),
+	inject: [
+		PERMISSIONS_MODULE_OPTIONS,
+		ModuleRef,
+		{ token: PROVIDER_DEFINITION_DEPENDENCIES_READY, optional: true },
+	],
+	useFactory: async (
+		options: PermissionsModuleOptions,
+		moduleRef: ModuleRef,
+		_dependenciesReady?: true,
+	) => resolvePolicyStore(options, moduleRef),
 };

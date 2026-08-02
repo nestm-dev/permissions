@@ -3,6 +3,7 @@ import { Reflector } from "@nestjs/core";
 import {
 	GLOBAL_POLICY_SCOPE,
 	entityGraph,
+	isPermissionsError,
 	normalizeEntityUid,
 	unqualifyEntityType,
 } from "@nestm/permissions-core";
@@ -288,7 +289,7 @@ export class PermissionsGuard implements CanActivate {
 		state.cedarContext = await this.buildContext(state, principal, route.action);
 
 		// 8 — the entity graph, resolved once and passed explicitly.
-		state.entities = await this.collectEntities(state, principal, route.action);
+		state.entities = await this.collectEntities(state, principal, route.action, planResourceType);
 
 		// 9 — the membership gate.
 		const gate = route.options.scope;
@@ -535,11 +536,13 @@ export class PermissionsGuard implements CanActivate {
 		state: RequestState,
 		principal: ResolvedPrincipal,
 		action: string,
+		resourceType: string | undefined,
 	): Promise<EntityGraph> {
 		const contributed = await this.entityProviders.resolveRouteEntities({
 			scope: state.scope,
 			principal: principal.ref,
 			action,
+			...(resourceType === undefined ? {} : { resourceType }),
 			resource: state.resource,
 		});
 
@@ -595,6 +598,7 @@ export class PermissionsGuard implements CanActivate {
 				scope: state.scope,
 				principal: principal.ref,
 				action,
+				resourceType: resource.type,
 				resource,
 			})),
 		);
@@ -623,6 +627,7 @@ export class PermissionsGuard implements CanActivate {
 		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- writing our own symbol onto the transport request
 		(state.request as Record<symbol, unknown>)[AUTHORIZATION_STATE] = new RequestAuthorization({
 			engine: this.engine,
+			entityResolver: (request) => this.entityProviders.resolveRouteEntities(request),
 			principal,
 			scope: state.scope,
 			context: state.cedarContext,
@@ -649,6 +654,17 @@ export class PermissionsGuard implements CanActivate {
 		if (error instanceof RoutePermissionConfigurationError) {
 			this.logger.error(`${state.route}: ${error.message}`);
 			return { reason: "misconfigured", detail: error.message };
+		}
+		if (isPermissionsError(error)) {
+			// Engine/store/provider failures are operational, not policy denials. A
+			// plain 500 would hide that authorization is unavailable; a 403 would be
+			// worse, because it would misreport infrastructure failure as a Cedar
+			// decision. The full typed failure is logged while the response stays
+			// deliberately generic.
+			this.logger.error(
+				`${state.route}: authorization failed with ${error.code}: ${error.message}`,
+			);
+			return { reason: "engine-unavailable" };
 		}
 		return undefined;
 	}

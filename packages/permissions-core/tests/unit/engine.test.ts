@@ -571,6 +571,7 @@ describe("entity resolution", () => {
 			principal: { type: "Member", id: "m1" },
 			action: "run:read",
 			resource: { type: "Run", id: "r1" },
+			resourceType: "Run",
 		});
 	});
 
@@ -1240,7 +1241,7 @@ describe("plan", () => {
 		await engine.plan({ ...planRun, entities: undefined });
 
 		expect(resolvePrincipal).toHaveBeenCalledWith(
-			expect.objectContaining({ scope: TENANT, action: "run:read" }),
+			expect.objectContaining({ scope: TENANT, action: "run:read", resourceType: "Run" }),
 		);
 		// There is no resource instance to resolve — that is the whole point.
 		expect(resolvePrincipal.mock.calls[0]?.[0]).not.toHaveProperty("resource");

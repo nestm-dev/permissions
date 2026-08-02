@@ -1,20 +1,23 @@
 import "reflect-metadata";
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, Injectable } from "@nestjs/common";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 import type { INestApplication } from "@nestjs/common";
+import type { EntityGraph, EntityResolutionRequest } from "@nestm/permissions-core";
 
 import {
 	CurrentAuthorization,
+	EntityProvider,
 	QueryPlan,
 	RequirePermission,
+	type FeatureEntityProvider,
 	type RequestAuthorization,
 	type SeedPolicy,
 } from "../../src/index.ts";
 import { createTestApp } from "../shared/test-app.ts";
 import { testHttpAdapter } from "../shared/http-adapter.ts";
 import { HeaderPrincipalResolver, ROLE_HEADER, USER_HEADER } from "../shared/test-principal.ts";
-import { IDS, TEST_SCOPE, testVocabulary } from "../shared/test-vocabulary.ts";
+import { IDS, TEST_SCOPE, runGraph, testVocabulary } from "../shared/test-vocabulary.ts";
 
 /**
  * One conditional policy and one that never applies to a non-admin.
@@ -43,6 +46,14 @@ const PLAN_POLICIES: readonly SeedPolicy[] = [
 		) when { principal.role == "admin" };`,
 	},
 ];
+
+@EntityProvider()
+@Injectable()
+class RecheckedRunProvider implements FeatureEntityProvider<typeof testVocabulary> {
+	resolveResource(resolution: EntityResolutionRequest<typeof testVocabulary>): EntityGraph {
+		return resolution.resource?.type === "Run" ? runGraph() : [];
+	}
+}
 
 @Controller("runs")
 class RunsController {
@@ -93,7 +104,9 @@ afterEach(async () => {
 	app = undefined;
 });
 
-async function createPlanApp(): Promise<INestApplication> {
+async function createPlanApp(
+	options: { readonly recheckProvider?: boolean } = {},
+): Promise<INestApplication> {
 	return createTestApp({
 		forRoot: {
 			vocabulary: testVocabulary,
@@ -101,7 +114,10 @@ async function createPlanApp(): Promise<INestApplication> {
 			principalResolver: new HeaderPrincipalResolver(),
 			scopeResolver: () => TEST_SCOPE,
 		},
-		metadata: { controllers: [RunsController] },
+		metadata: {
+			controllers: [RunsController],
+			providers: options.recheckProvider === true ? [RecheckedRunProvider] : [],
+		},
 	});
 }
 
@@ -172,6 +188,22 @@ describe(`query plans (${testHttpAdapter})`, () => {
 			// `can` asks about a concrete run that is not in the request's graph, so
 			// Cedar sees it attribute-less and the conditional permit cannot hold.
 			can: false,
+		});
+	});
+
+	it("re-resolves can() entities through the provider stashed by the guard", async () => {
+		app = await createPlanApp({ recheckProvider: true });
+
+		const response = await request(app.getHttpServer())
+			.get("/runs/both")
+			.set(USER_HEADER, IDS.member)
+			.set(ROLE_HEADER, "admin")
+			.expect(200);
+
+		expect(response.body).toEqual({
+			runs: "CONDITIONAL",
+			dispatch: "ALWAYS_ALLOW",
+			can: true,
 		});
 	});
 });

@@ -34,6 +34,8 @@ import { createPermissionsSchema, type PermissionsSchema } from "../../src/schem
 import {
 	DrizzlePolicyStore,
 	type DrizzlePolicyStoreDatabase,
+	type DrizzlePolicyStoreExecution,
+	type DrizzlePolicyStoreExecutor,
 } from "../../src/store/drizzle-policy-store.ts";
 
 /** An application's own drizzle schema — the thing that makes the generic differ. */
@@ -103,6 +105,17 @@ describe("DrizzlePolicyStore's database parameter", () => {
 
 	it("accepts a plain pool handle too — this is a widening, not a swap", () => {
 		expectTypeOf<Assignable<LegacyParameter, DrizzlePolicyStoreDatabase>>().toEqualTypeOf<true>();
+	});
+
+	it("accepts a tenant executor with the shared structural run contract", () => {
+		interface TenantExecutor {
+			run<Result>(
+				execution: DrizzlePolicyStoreExecution,
+				work: (database: DrizzlePolicyStoreDatabase) => Result | Promise<Result>,
+			): Promise<Result>;
+		}
+
+		expectTypeOf<Assignable<TenantExecutor, DrizzlePolicyStoreExecutor>>().toEqualTypeOf<true>();
 	});
 
 	it("is the PgDatabase supertype the class already used internally", () => {

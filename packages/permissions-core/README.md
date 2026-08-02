@@ -216,12 +216,18 @@ instance", which is why `check()` retries it exactly once (re-preparse, retry) b
 **Pass a narrow entity graph.** Adding 500 irrelevant entities to a request took the same check from
 0.136 ms to 2.79 ms. `EntityProvider` is split into `resolvePrincipal` / `resolveResource` /
 `resolveAdditional` precisely so you return the principal plus its ancestors, the resource plus the
-parents its policies traverse, and nothing else.
+parents its policies traverse, and nothing else. During `plan()`, there is no resource instance;
+the request instead carries `resourceType`, so additional resolution can still select the right
+dependencies without loading an arbitrary row.
 
 **A failed reload never empties a tenant.** If a load, a compile or `validateOnLoad` fails, the
 previously prepared policy set stays resident and keeps answering; the error reaches the caller that
 triggered the reload. A bad policy write degrades to "the new policies did not take effect", never to
 "the tenant lost all policies".
+
+**An invalidation cannot disappear behind an in-flight load.** Per-scope and global generations are
+captured before every load. If `watch()` reports a change before that bundle is preparsed, the same
+single-flight retries and every waiting caller receives a post-invalidation snapshot.
 
 ### The errored-policy trap, and the two things that close it
 
@@ -512,7 +518,8 @@ satisfies it — wrapping a writable store is how you freeze one.
 Everything this package throws is a `PermissionsError` carrying a machine-readable `code` and, when
 the failure came from Cedar, its `DetailedError[]` with source offsets — which is what lets an admin
 policy editor draw squiggles in the right place. Branch on `code`, never on `instanceof` across a
-package boundary.
+package boundary. `isPermissionsError(value)` performs that structural check (known `code` plus a
+string `message`), so it also recognizes an error created by a separately bundled package copy.
 
 `ENGINE_INIT` · `CEDAR_VERSION` · `SCHEMA_INVALID` · `POLICY_PARSE` · `POLICY_INVALID` ·
 `POLICY_SET_NOT_PREPARED` · `POLICY_STORE` · `ENTITY_RESOLUTION` · `EVALUATION_FAILED` ·

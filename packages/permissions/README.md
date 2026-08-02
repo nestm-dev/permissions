@@ -141,6 +141,11 @@ export class RunEntityProvider implements FeatureEntityProvider {
 Any class in any module's `providers` is discovered; `PermissionsModule.forFeature({ entityProviders:
 […] })` is the ergonomic shorthand.
 
+On a query-plan route, resolver requests have no single `resource` but do include `resourceType`.
+Provider failures are surfaced as `ENTITY_RESOLUTION` operational errors; the guard logs and audits
+them as `engine-unavailable` and returns 503 rather than misreporting an infrastructure outage as a
+policy denial.
+
 ### 4. Declare what each route enforces
 
 ```ts
@@ -185,7 +190,7 @@ Every route needs one of those four. A route with none is **refused with 403** �
 | Option               | Default                | Notes                                                                                                                                            |
 | -------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `vocabulary`         | —                      | Required. The output of `defineVocabulary`.                                                                                                      |
-| `store`              | seeded in-memory store | `PolicyStore` instance or `{ useClass \| useExisting \| useFactory, inject }`, resolved through `ModuleRef`.                                     |
+| `store`              | seeded in-memory store | `PolicyStore` instance or `{ useClass \| useExisting \| useFactory, inject }`; exported async sibling providers are awaited before engine boot.  |
 | `policies` `links`   | `[]`                   | Seeds for the built-in memory store. Combining them with `store` throws — this module never issues an unrequested write against a store you own. |
 | `principalResolver`  | —                      | Turns a request into a principal. Same four provider shapes. Without it every guarded route answers 500, naming the missing option.              |
 | `contextBuilder`     | `() => ({})`           | Builds the Cedar request context from the transport request.                                                                                     |
@@ -246,8 +251,13 @@ Every route needs one of those four. A route with none is **refused with 403** �
 | `@QueryPlan()`            | The plan a `{ kind: "unspecified" }` route precomputed.                                                                |
 
 `RequestAuthorization` carries `principal`, `scope`, `context`, `entities`, `route`, `resource`,
-`result` and `plan`, plus two methods that reuse the request's already-resolved graph:
-`planFor(action, resourceType, opts?)` and `can(action, resource)`.
+`result` and `plan`, plus `planFor(action, resourceType, opts?)` and
+`can(action, resource, opts?)`. Guard-created instances re-run the registered resource/additional
+entity providers for the requested action/resource, then combine those fresh contributions with
+the principal graph. Plan-time resolver requests carry the requested `resourceType`. This lets a handler re-check against rows loaded inside its own transaction
+instead of reusing the guard's pre-transaction resource snapshot. Both methods accept
+`{ scope?, context?, entities? }`; explicit `entities` skip re-resolution. Manually constructed
+instances without the optional resolver retain the original `authorization.entities` fallback.
 
 ### PermissionsService
 
@@ -357,6 +367,11 @@ test that asserts exactly that, on both adapters.
 Denial reasons handed to the hooks: `unauthenticated` (401) · `forbidden` (403) · `not-a-member` /
 `not-in-scope` (404) · `plan-denied` (403) · `undeclared-route` (403) · `engine-unavailable` (503) ·
 `invalid-resource-param` (400) · `invalid-scope` (400) · `misconfigured` (500).
+
+A typed `PermissionsError` escaping a guard-time engine/store/entity operation is
+`engine-unavailable`: it is logged with its machine code, audited through the same denial hook, and
+returned as 503. It is never mislabeled as Cedar's 403 decision. Imperative `PermissionsService`
+calls continue to surface the original typed error to their caller.
 
 `hooks.onDecision(record)` fires on allow **and** deny; it is never awaited and a throw is swallowed,
 because an audit sink must not be able to fail a request.

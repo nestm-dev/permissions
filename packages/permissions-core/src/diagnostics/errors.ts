@@ -234,5 +234,31 @@ export class PostFilterOverflowError extends PermissionsError {
 
 /** Narrows an unknown value to a {@link PermissionsError} across package copies. */
 export function isPermissionsError(value: unknown): value is PermissionsError {
-	return value instanceof PermissionsError;
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+
+	const candidate = value as { readonly code?: unknown; readonly message?: unknown };
+	return (
+		typeof candidate.message === "string" &&
+		typeof candidate.code === "string" &&
+		Object.hasOwn(PERMISSIONS_ERROR_CODES, candidate.code)
+	);
 }
+
+/** Runtime mirror of {@link PermissionsErrorCode}, kept exhaustive by the type. */
+const PERMISSIONS_ERROR_CODES: Readonly<Record<PermissionsErrorCode, true>> = Object.freeze({
+	ENGINE_INIT: true,
+	CEDAR_VERSION: true,
+	SCHEMA_INVALID: true,
+	POLICY_PARSE: true,
+	POLICY_INVALID: true,
+	POLICY_SET_NOT_PREPARED: true,
+	POLICY_STORE: true,
+	ENTITY_RESOLUTION: true,
+	EVALUATION_FAILED: true,
+	UNSUPPORTED_RESIDUAL: true,
+	ERRORED_POLICY: true,
+	POST_FILTER_OVERFLOW: true,
+	PLAN_EVALUATION: true,
+});

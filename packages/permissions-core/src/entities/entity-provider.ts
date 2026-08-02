@@ -15,7 +15,7 @@
 import type { EntityJson } from "../cedar/binding.ts";
 import type { EntityRef } from "../cedar/uid.ts";
 import type { PolicyScopeId } from "../policy/policy-store.ts";
-import type { ActionOf, AnyVocabulary } from "../vocabulary/types.ts";
+import type { ActionOf, AnyVocabulary, EntityNameOf } from "../vocabulary/types.ts";
 
 /**
  * Cedar's own entity shape, re-exported so a provider never needs a direct
@@ -41,6 +41,11 @@ export interface EntityResolutionRequest<V extends AnyVocabulary> {
 	readonly action: ActionOf<V>;
 	/** Resource being authorized. Absent when planning over a whole type (Phase 4). */
 	readonly resource?: EntityRef;
+	/**
+	 * Resource type being authorized or planned over. Present on query-plan
+	 * resolution even though there is no single {@link resource} instance.
+	 */
+	readonly resourceType?: EntityNameOf<V>;
 }
 
 /**

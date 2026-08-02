@@ -6,7 +6,7 @@
 // pre-change policy set until something unrelated happens to write. That makes
 // the interesting assertions the negative ones:
 //
-//   * a tick that fails must not advance the watermark, so the change it did not
+//   * a tick that fails must not advance the observed version snapshot, so the change it did not
 //     see is still delivered afterwards;
 //   * a tick that fails must not clear anything — stale-but-known beats empty,
 //     because an empty policy set is `deny` for the whole tenant;
@@ -33,6 +33,24 @@ import { provisionPermissionsSchema, type ProvisionedSchema } from "../../src/te
 import { PG_SKIPPED, PG_URL, assertPostgresReachable, uniqueSuffix } from "../fixtures/pg.ts";
 
 const FIXTURE_TIME = new Date("2026-07-30T00:00:00.000Z");
+
+interface VoidDeferred {
+	readonly promise: Promise<void>;
+	resolve(): void;
+}
+
+function voidDeferred(): VoidDeferred {
+	let resolvePromise: (() => void) | undefined;
+	const promise = new Promise<void>((resolve) => {
+		resolvePromise = resolve;
+	});
+	return {
+		promise,
+		resolve(): void {
+			resolvePromise?.();
+		},
+	};
+}
 
 function policy(id: string, scope: string, kind: "static" | "template" = "static"): PolicyRecord {
 	return {
@@ -367,7 +385,7 @@ describe.skipIf(PG_SKIPPED)("DrizzlePolicyStore invalidation", () => {
 		const events: PolicyChangeEvent[] = [];
 		reader.watch((event) => events.push(event));
 
-		// Seed the reader's watermark before anything changes.
+		// Seed the reader's observed versions before anything changes.
 		await reader.pollOnce();
 		expect(events).toEqual([]);
 
@@ -375,7 +393,7 @@ describe.skipIf(PG_SKIPPED)("DrizzlePolicyStore invalidation", () => {
 		const beta = uniqueSuffix("beta");
 
 		// Three writes across two scopes. The tick must collapse them to one event
-		// per *scope*, not one per write — cost is O(changed scopes).
+		// per *scope*, not one per write.
 		await writer.save([policy("p1", alpha)]);
 		await writer.save([policy("p2", alpha)]);
 		await writer.save([policy("p3", beta)]);
@@ -399,9 +417,8 @@ describe.skipIf(PG_SKIPPED)("DrizzlePolicyStore invalidation", () => {
 	});
 
 	it("does not re-report a change it has already delivered", async () => {
-		// The watermark is carried as the database's own `::text` rendering, because
-		// `timestamptz` has microsecond precision and a JS `Date` has milliseconds —
-		// a truncated watermark re-reports the same row on every tick, forever.
+		// The observed version map advances after delivery, so unchanged counters are
+		// not re-reported on later ticks.
 		const writer = makeStore();
 		const reader = makeStore();
 		const events: PolicyChangeEvent[] = [];
@@ -434,7 +451,7 @@ describe.skipIf(PG_SKIPPED)("DrizzlePolicyStore invalidation", () => {
 		expect(events.map((event) => event.scope)).toEqual(["*"]);
 	});
 
-	it("keeps the watermark and delivers the change after a failed tick", async () => {
+	it("keeps the version snapshot and delivers the change after a failed tick", async () => {
 		// The assertion the whole backoff design exists for. The scope-versions table
 		// is renamed out from under the poller, so the tick throws; the change written
 		// *before* the failure must still arrive once the table is back.
@@ -465,6 +482,46 @@ describe.skipIf(PG_SKIPPED)("DrizzlePolicyStore invalidation", () => {
 
 		await reader.pollOnce();
 		expect(events.map((event) => event.scope)).toEqual([scope]);
+	});
+
+	it("does not miss a transaction that starts first and commits last", async () => {
+		const writer = makeStore();
+		const reader = makeStore();
+		const events: PolicyChangeEvent[] = [];
+		reader.watch((event) => events.push(event));
+		await reader.pollOnce();
+
+		const olderScope = uniqueSuffix("older-commit");
+		const newerScope = uniqueSuffix("newer-commit");
+		const started = voidDeferred();
+		const release = voidDeferred();
+		const table = provisioned.schema.permissionScopeVersions;
+		const olderWrite = provisioned.db.transaction(async (tx) => {
+			await tx
+				.insert(table)
+				.values({ scope: olderScope, version: 1, updatedAt: sql`now()` } as never)
+				.onConflictDoUpdate({
+					target: table.scope,
+					set: { version: sql`${table.version} + 1`, updatedAt: sql`now()` } as never,
+				});
+			started.resolve();
+			await release.promise;
+		});
+
+		try {
+			await started.promise;
+			await writer.save([policy("newer", newerScope)]);
+			await reader.pollOnce();
+			expect(events.map((event) => event.scope)).toEqual([newerScope]);
+
+			release.resolve();
+			await olderWrite;
+			await reader.pollOnce();
+			expect(events.map((event) => event.scope)).toEqual([newerScope, olderScope]);
+		} finally {
+			release.resolve();
+			await olderWrite.catch(() => undefined);
+		}
 	});
 
 	it("starts the poller on the first watch and stops it on the last unsubscribe", () => {

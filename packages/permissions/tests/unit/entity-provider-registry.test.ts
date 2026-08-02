@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { Injectable } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { DiscoveryModule } from "@nestjs/core";
-import { normalizeEntityUid } from "@nestm/permissions-core";
+import { isPermissionsError, normalizeEntityUid } from "@nestm/permissions-core";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {
 	AnyVocabulary,
@@ -272,5 +272,55 @@ describe("resolveRouteEntities", () => {
 				action: "run:read",
 			}),
 		).resolves.toEqual([]);
+	});
+
+	it("passes the planned resource type to providers without inventing an instance", async () => {
+		let seen: EntityResolutionRequest<typeof testVocabulary> | undefined;
+		const provider: FeatureEntityProvider<typeof testVocabulary> = {
+			resolveAdditional(request): EntityGraph {
+				seen = request;
+				return [];
+			},
+		};
+		const registry = new EntityProviderRegistry();
+		registry.register(provider, { name: "PlanningProvider" });
+
+		await registry.resolveRouteEntities({
+			scope: TEST_SCOPE,
+			principal: { type: "Member", id: "member-1" },
+			action: "run:read",
+			resourceType: "Run",
+		});
+
+		expect(seen).toMatchObject({ resourceType: "Run" });
+		expect(seen).not.toHaveProperty("resource");
+	});
+
+	it("wraps provider failures as structural ENTITY_RESOLUTION errors", async () => {
+		const registry = new EntityProviderRegistry();
+		registry.register(
+			{
+				resolveResource: async () => {
+					throw new Error("database is offline");
+				},
+			},
+			{ name: "BrokenProvider" },
+		);
+
+		const failure = await registry
+			.resolveRouteEntities({
+				scope: TEST_SCOPE,
+				principal: { type: "Member", id: "member-1" },
+				action: "run:read",
+				resource: { type: "Run", id: "run-1" },
+			})
+			.catch((error: unknown) => error);
+
+		expect(isPermissionsError(failure)).toBe(true);
+		expect(failure).toMatchObject({
+			code: "ENTITY_RESOLUTION",
+			scope: TEST_SCOPE,
+			message: expect.stringContaining("BrokenProvider") as unknown,
+		});
 	});
 });
