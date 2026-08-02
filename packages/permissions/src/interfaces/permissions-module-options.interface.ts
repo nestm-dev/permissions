@@ -28,8 +28,8 @@ import type { ScopeResolutionContext } from "./route-permission.interface.ts";
  *
  * `useClass` is instantiated through `ModuleRef.create()`, so it participates in
  * constructor DI without being registered as a provider; `useExisting` and the
- * `inject` tokens of `useFactory` are looked up non-strictly, so a store living
- * in a sibling module resolves.
+ * `inject` tokens of `useFactory` are resolved non-strictly, with an asynchronous
+ * fallback when a sibling provider is registered but not instantiated yet.
  */
 export type ProviderDefinition<T> =
 	| T

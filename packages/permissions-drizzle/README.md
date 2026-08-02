@@ -131,9 +131,9 @@ nothing" is structural rather than a hand-written early return.
 ## The schema factory
 
 ```ts
-createPermissionsSchema<TScope>(options?: {
+createPermissionsSchema<TScope, TScopeColumn extends PgColumnBuilderBase>(options?: {
 	tablePrefix?: string;                 // default 'permission_'
-	scopeColumn?: ScopeColumnOptions<TScope>;
+	scopeColumn?: ScopeColumnOptions<TScope, TScopeColumn>;
 	linkIdColumn?: () => PgColumnBuilderBase; // default text('link_id').notNull()
 	extraColumns?: { policies?; links?; scopeVersions? };
 	extraTableConfig?: (tables: RawPermissionsTables) => ExtraTableConfig | undefined;
@@ -155,14 +155,21 @@ if you want it, knowingly.
 ### The scope column is yours
 
 ```ts
-interface ScopeColumnOptions<TValue = string> {
+interface ScopeColumnOptions<
+	TValue = string,
+	TColumn extends PgColumnBuilderBase = PgColumnBuilderBase,
+> {
 	name: string;
-	column: () => PgColumnBuilderBase; // called once per table — return a FRESH builder
+	column: () => TColumn; // called once per table — return a FRESH builder
 	toScope: (value: TValue) => string; // column value -> core's PolicyScopeId
 	fromScope: (scope: string) => TValue; // the inverse; throws on '' when unsupported
 	supportsGlobalScope?: boolean; // default true
 }
 ```
+
+An inline `column` keeps its concrete Drizzle builder in the returned tables. For example,
+`text("organization_id").notNull()` makes every returned `.scope` a non-null `PgText` column with
+`string` data, so string-tenant RLS helpers accept it without a cast.
 
 `supportsGlobalScope: false` (a `NOT NULL uuid` tenant key) makes the store **reject** writes to the
 global scope `''` and skip the global half of the `load()` union entirely. A `NOT NULL` tenant
@@ -301,31 +308,42 @@ permissionsPostgresPolicyStatements({ role: "station_app" }).join(";\n") + ";";
 Two things to know before running under RLS:
 
 - **`permission_scope_versions` is left unprotected by default.** The invalidation poller runs
-  `SELECT scope, version … WHERE updated_at > $1` with **no** tenant context; under RLS that returns
+  `SELECT scope, version …` with **no** tenant context; under RLS that returns
   zero rows and no cache ever invalidates. The table holds no tenant _data_, only a monotonic
   counter keyed by tenant id — a cache-coherence channel. `rowLevelSecurityOnScopeVersions: true`
   turns it on if you have given the poller a context, or accepted that invalidation stops. This is
   the one item in the design a security reviewer is asked to sign off on.
-- **Build the store over the transaction that carries the context.** `set_config(…, true)` is
-  transaction-local, so a store issuing its statements on a different pooled connection sees no
-  context and reads **zero** rows:
+- **Run foreground store work through the executor that carries the context.** `set_config(…, true)`
+  is transaction-local, so a singleton store issuing its statements on a different pooled
+  connection sees no context and reads **zero** rows. `DrizzlePolicyStoreExecutor` is structural;
+  a tenant library can implement it without depending on this package:
 
   ```ts
-  await db.transaction(async (tx) => {
-  	await tx.execute(sql`select set_config('station.organization_id', ${orgId}, true)`);
-  	const store = new DrizzlePolicyStore(tx, schema);
-  	return store.load(scope);
-  });
+  const executor: DrizzlePolicyStoreExecutor = tenantRlsExecutor;
+  const options = { executor, poll: false };
+  const store = new DrizzlePolicyStore(db, schema, options);
   ```
 
-  The constructor's `db` parameter is `DrizzlePolicyStoreDatabase` — the
-  `PgDatabase<PgQueryResultHKT, …>` supertype the store's own methods use — so a `transaction()`
-  handle, a handle typed over your application's schema, and a handle a driver-agnostic helper
-  hands out all fit **without a cast**. That matters here specifically: the wiring above is the one
-  the design cares most about, and the alternative was `tx as unknown as
-ConstructorParameters<typeof DrizzlePolicyStore>[0]`, a cast that would equally have accepted a
-  number. `PermissionsDrizzleModuleOptions.db` takes the same type; pass a pool there, never a
-  transaction, since the module's store outlives any transaction.
+  Keep polling disabled unless `scope_versions` is deliberately readable without context.
+
+  Its one method is
+  `run({ operation, access, isolationLevel, commitOwnership, scopes }, work)`. `scopes` is the exact effective
+  database scope set: a global-capable tenant read names `["", tenant]`, while a tenant-only schema
+  names `[tenant]`. Validate it against the request tenant before opening/pinning a transaction,
+  setting the context, and invoking `work(tx)`. A global or mismatched scope must be rejected, not
+  interpreted as an empty RLS result.
+
+  The execution object declares transaction policy directly, so adapters never infer it from the
+  operation name. Apply `access` and `isolationLevel` as given. When `commitOwnership` is
+  `"required"`, reject nesting and resolve only after the real `COMMIT`, because the store emits
+  its synchronous local invalidation immediately after that promise resolves.
+
+  Omitting `executor` uses `db.transaction(...)` when `db` is a root database handle. Passing an
+  ambient Drizzle transaction without an explicit executor is rejected: Drizzle would create only
+  a savepoint, could not apply the requested transaction configuration, and could not truthfully
+  report a write as committed. The portable database type still accepts transaction handles for
+  explicit executors. A long-lived Nest store should receive the pool as `db` and a request-aware
+  executor through `options`, never a request transaction as the module's database.
 
   A superuser bypasses RLS regardless of `FORCE`, so verify your isolation as the
   `NOLOGIN NOBYPASSRLS` role your application actually connects as.
@@ -339,7 +357,8 @@ new DrizzlePolicyStore(db, schema, options?)
 
 | option        | default                |                                                                                                                                                                                                                                                       |
 | ------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `poll`        | `{ intervalMs: 5000 }` | Invalidation poll; `false` disables it. **One** query per tick regardless of tenant count, so cost is O(changed scopes), not O(cached scopes).                                                                                                        |
+| `executor`    | `db.transaction`       | Foreground transaction/RLS seam. `load` requests read-only repeatable-read; writes request an owned, post-commit transaction. Background polling still uses `db`.                                                                                     |
+| `poll`        | `{ intervalMs: 5000 }` | Invalidation poll; `false` disables it. **One** query per tick compares every scope's monotonic version with an in-memory snapshot, avoiding timestamp/commit-order races. Rows returned are O(all scopes).                                           |
 | `notify`      | off                    | Opt-in `LISTEN`/`NOTIFY`: `{ channel, client: () => new Client(url) }`. The connection must be **dedicated and non-pooled** — a pooled connection handed out mid-`LISTEN` stops delivering notifications with no error anywhere. `dispose()` ends it. |
 | `onError`     | —                      | Where background failures go. The poller must never crash the process and must never clear the cache.                                                                                                                                                 |
 | `scopeColumn` | from the tables        | Only needed when the tables were declared by hand rather than by the factory.                                                                                                                                                                         |
@@ -351,7 +370,7 @@ connection) and `pollOnce()` (one tick, for tests).
 transaction_ and emits a change event **synchronously after commit**, so the writing replica has
 zero staleness. Other replicas learn from the poller, which emits exactly one event per changed
 scope. A failed tick logs to `onError`, backs off exponentially (capped at 60 s) and **leaves the
-watermark and the cache untouched** — stale-but-known beats empty, because an empty policy set is
+observed version snapshot and the cache untouched** — stale-but-known beats empty, because an empty policy set is
 `deny` for the whole tenant.
 
 A global-scope write is broadcast as `{ scope: '*' }`, because it changes the effective bundle of
@@ -549,9 +568,9 @@ never exits.
 - **Row identity is not expressible.** `resource == Run::"r1"` is rejected by core's planner as
   `entity-identity`; `inHierarchy` is Cedar's reflexive-and-transitive `in`, which is strictly wider,
   so mapping `==` onto it would widen a permit.
-- **`load()` issues three sequential round trips.** It is a cold path (the engine caches per scope),
-  and the alternative overlaps queries on one `pg` client — deprecated in `pg@8`, removed in `pg@9`,
-  and the RLS wiring above puts the store on a transaction handle by necessity.
+- **`load()` issues three sequential round trips in one repeatable-read snapshot.** It is a cold
+  path (the engine caches per scope), and the alternative overlaps queries on one pinned `pg`
+  client — deprecated in `pg@8` and removed in `pg@9`.
 - **`LISTEN`/`NOTIFY` accelerates the poll rather than replacing it.** `NOTIFY` is best-effort: it is
   lost if nobody is listening at that instant, and a dropped connection loses every notification
   until it reconnects. `poll: false` alongside `notify` is supported and means a missed notification

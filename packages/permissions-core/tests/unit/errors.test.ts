@@ -62,7 +62,19 @@ describe("PermissionsError", () => {
 
 	it("is detectable via isPermissionsError", () => {
 		expect(isPermissionsError(new PermissionsError("ENGINE_INIT", "boom"))).toBe(true);
+		// A separately bundled copy has a different constructor identity. The public
+		// guard is intentionally structural so its stable string discriminant still
+		// crosses that package boundary.
+		expect(
+			isPermissionsError({
+				name: "PermissionsError",
+				code: "POLICY_STORE",
+				message: "store unavailable",
+			}),
+		).toBe(true);
 		expect(isPermissionsError(new Error("boom"))).toBe(false);
+		expect(isPermissionsError({ code: "NOT_A_PERMISSIONS_CODE", message: "boom" })).toBe(false);
+		expect(isPermissionsError({ code: "POLICY_STORE" })).toBe(false);
 		expect(isPermissionsError(undefined)).toBe(false);
 	});
 });

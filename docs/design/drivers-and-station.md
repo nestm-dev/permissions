@@ -53,7 +53,7 @@ Indexes: `(scope) WHERE enabled` (the load path), `GIN (cedar_json jsonb_path_op
 
 Index: `(scope, principal_type, principal_id)`. Storing the slot values as columns (rather than a `values jsonb`) is what makes "revoke every grant for member X" and "who holds this role?" plain indexed statements — exactly station's `role_grants` access pattern.
 
-**`permission_scope_versions`** — the invalidation stamp. `scope` PK, `version bigint NOT NULL DEFAULT 1`, `updated_at timestamptz NOT NULL`, plus `INDEX (updated_at)`.
+**`permission_scope_versions`** — the invalidation stamp. `scope` PK, `version bigint NOT NULL DEFAULT 1`, `updated_at timestamptz NOT NULL`. The poller compares the monotonic `version`; no timestamp index is needed.
 
 Every write bumps its scope row **in the same transaction**:
 ```sql
@@ -77,7 +77,7 @@ When `supportsGlobalScope: false` (station: `organization_id uuid NOT NULL` with
 
 **Invalidation mechanism — v1 pick: version-stamp polling + synchronous local invalidation, with LISTEN/NOTIFY opt-in.**
 - The store's own `save`/`delete`/`linkTemplate`/`unlinkTemplate` emit a `PolicyChangeEvent` **synchronously after commit** → zero staleness for the writing replica.
-- `watch()` starts a poller (default 5000 ms) issuing **one** query regardless of tenant count: `SELECT scope, version FROM permission_scope_versions WHERE updated_at > $lastSeen` → emits one event per changed scope. Cost is O(changed scopes), not O(cached scopes).
+- `watch()` starts a poller (default 5000 ms) issuing **one** query: `SELECT scope, version FROM permission_scope_versions`. It compares the monotonic counters with an in-memory snapshot and emits one event per changed scope. Rows returned are O(all scopes); unlike a timestamp watermark, this cannot miss a transaction that starts first and commits last.
 - `notify: { channel: 'nestm_permissions' }` (Postgres only, both drivers) switches to `LISTEN/NOTIFY` on a **dedicated non-pooled connection**; documented as requiring a connection outside the app pool. Not the default because station's client pool assumes `station_app` at connect time.
 
 Rejected: an in-process bus alone (useless across replicas); `currentVersion` on the hot path (D1).
@@ -417,13 +417,12 @@ CREATE TABLE "permission_scope_versions" (
 );--> statement-breakpoint
 ALTER TABLE "permission_scope_versions" ADD CONSTRAINT "permission_scope_versions_organization_id_fk"
   FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade;--> statement-breakpoint
-CREATE INDEX "permission_scope_versions_updated_at_index" ON "permission_scope_versions" ("updated_at");--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON "permission_policies", "permission_policy_links" TO "station_app";--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "permission_scope_versions" TO "station_app";
 ```
 Note `role_grants` needs `UNIQUE(organization_id, id)` for that composite FK — add it in the same migration (it currently only has the two partial unique indexes; `id` is the PK, so the composite unique is a one-line addition).
 
-**The one honest RLS conflict.** The invalidation poller runs `SELECT organization_id, version FROM permission_scope_versions WHERE updated_at > $1` with **no** organization context — under RLS that returns zero rows and the cache never invalidates. Three options: (i) an "organization context unset" SELECT policy mirroring the identity lens; (ii) **no RLS on `permission_scope_versions`**; (iii) poll per-org inside a context (N transactions per tick — rejected). **Recommend (ii)**, with the reasoning written into `docs/SECURITY.md`: this table holds no Organization *data*, only a monotonic change counter keyed by org id; it is a cache-coherence channel, not a tenant store; `station_app` already knows every org id it serves. SECURITY.md's rule is "a schema change that introduces Organization-scoped **data** must add equivalent RLS policies" — this introduces none. This needs an explicit line in ADR-0019 and a SECURITY.md paragraph, and it is the single item in this migration that a security reviewer must sign off on.
+**The one honest RLS conflict.** The invalidation poller runs `SELECT organization_id, version FROM permission_scope_versions` with **no** organization context — under RLS that returns zero rows and the cache never invalidates. Three options: (i) an "organization context unset" SELECT policy mirroring the identity lens; (ii) **no RLS on `permission_scope_versions`**; (iii) poll per-org inside a context (N transactions per tick — rejected). **Recommend (ii)**, with the reasoning written into `docs/SECURITY.md`: this table holds no Organization *data*, only a monotonic change counter keyed by org id; it is a cache-coherence channel, not a tenant store; `station_app` already knows every org id it serves. SECURITY.md's rule is "a schema change that introduces Organization-scoped **data** must add equivalent RLS policies" — this introduces none. This needs an explicit line in ADR-0019 and a SECURITY.md paragraph, and it is the single item in this migration that a security reviewer must sign off on.
 
 ### 4f. `PermissionReach` replacement via the query plan
 

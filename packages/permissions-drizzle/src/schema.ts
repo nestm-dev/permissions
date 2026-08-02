@@ -28,6 +28,7 @@ import {
 	timestamp,
 	type PgColumn,
 	type PgColumnBuilderBase,
+	type PgTable,
 	type PgTableExtraConfigValue,
 	type PgTableWithColumns,
 } from "drizzle-orm/pg-core";
@@ -51,8 +52,13 @@ export const DEFAULT_TABLE_PREFIX = "permission_";
  *
  * @typeParam TValue Type stored in the column — `string` for `text`, `string`
  * for drizzle's `uuid`, a branded id for a custom type.
+ * @typeParam TColumn Concrete Drizzle builder. Inferred from an inline `column`
+ * callback and preserved on every returned table.
  */
-export interface ScopeColumnOptions<TValue = string> {
+export interface ScopeColumnOptions<
+	TValue = string,
+	TColumn extends PgColumnBuilderBase = PgColumnBuilderBase,
+> {
 	/** SQL name of the column. Must match the name the builder was given. */
 	readonly name: string;
 	/**
@@ -60,7 +66,7 @@ export interface ScopeColumnOptions<TValue = string> {
 	 * builder each time — drizzle column builders carry per-table state and
 	 * reusing one silently attaches the column to whichever table was built last.
 	 */
-	readonly column: () => PgColumnBuilderBase;
+	readonly column: () => TColumn;
 	/** Column value to core's scope id. `'org:8f3e…'` from a uuid, or identity. */
 	readonly toScope: (value: TValue) => string;
 	/**
@@ -187,11 +193,14 @@ export interface ExtraTableConfig {
 }
 
 /** Options for {@link createPermissionsSchema}. */
-export interface CreatePermissionsSchemaOptions<TScope = string> {
+export interface CreatePermissionsSchemaOptions<
+	TScope = string,
+	TScopeColumn extends PgColumnBuilderBase = PgColumnBuilderBase,
+> {
 	/** Table-name prefix. Default `'permission_'`. */
 	readonly tablePrefix?: string;
 	/** The tenant column. Defaults to `text('scope')` with an identity mapping. */
-	readonly scopeColumn?: ScopeColumnOptions<TScope>;
+	readonly scopeColumn?: ScopeColumnOptions<TScope, TScopeColumn>;
 	/**
 	 * Builds `${prefix}policy_links.link_id`. Defaults to `text('link_id').notNull()`.
 	 *
@@ -372,11 +381,49 @@ export type PermissionScopeVersionsTable<
  * — which is what lets a consumer re-assemble it from the top-level consts
  * drizzle-kit requires.
  */
-export interface PermissionsSchema {
-	readonly permissionPolicies: PermissionPoliciesTable;
-	readonly permissionPolicyLinks: PermissionPolicyLinksTable;
-	readonly permissionScopeVersions: PermissionScopeVersionsTable;
+interface ConcretePermissionsSchema<TScopeColumn extends PgColumnBuilderBase> {
+	readonly permissionPolicies: PermissionPoliciesTable<TScopeColumn>;
+	readonly permissionPolicyLinks: PermissionPolicyLinksTable<TScopeColumn>;
+	readonly permissionScopeVersions: PermissionScopeVersionsTable<TScopeColumn>;
 }
+
+type SchemaTable<TColumns extends string> = PgTable & Readonly<Record<TColumns, PgColumn>>;
+
+interface WidenedPermissionsSchema {
+	readonly permissionPolicies: SchemaTable<
+		| "scope"
+		| "policyId"
+		| "kind"
+		| "cedarJson"
+		| "cedarText"
+		| "description"
+		| "annotations"
+		| "enabled"
+		| "createdAt"
+		| "updatedAt"
+	>;
+	readonly permissionPolicyLinks: SchemaTable<
+		| "scope"
+		| "linkId"
+		| "templateId"
+		| "principalType"
+		| "principalId"
+		| "resourceType"
+		| "resourceId"
+		| "createdAt"
+		| "updatedAt"
+	>;
+	readonly permissionScopeVersions: SchemaTable<"scope" | "version" | "updatedAt">;
+}
+
+/**
+ * The schema's widened consumer shape, or its exact factory shape when a scope
+ * builder is supplied as the type argument.
+ */
+export type PermissionsSchema<TScopeColumn extends PgColumnBuilderBase | undefined = undefined> =
+	TScopeColumn extends PgColumnBuilderBase
+		? ConcretePermissionsSchema<TScopeColumn>
+		: WidenedPermissionsSchema;
 
 /**
  * Metadata the store needs and the tables alone do not carry: the scope codec
@@ -457,12 +504,16 @@ function attachMeta(table: object, meta: PermissionsSchemaMeta): void {
  * through {@link CreatePermissionsSchemaOptions.extraTableConfig}, and accept
  * that trade knowingly.
  */
-export function createPermissionsSchema<TScope = string>(
-	options: CreatePermissionsSchemaOptions<TScope> = {},
-): PermissionsSchema {
+export function createPermissionsSchema<
+	TScope = string,
+	TScopeColumn extends PgColumnBuilderBase = PgColumnBuilderBase,
+>(
+	options: CreatePermissionsSchemaOptions<TScope, TScopeColumn> = {},
+): PermissionsSchema<TScopeColumn> {
 	const tablePrefix = options.tablePrefix ?? DEFAULT_TABLE_PREFIX;
 	const scopeColumn =
-		options.scopeColumn ?? (defaultScopeColumn() as unknown as ScopeColumnOptions<TScope>);
+		options.scopeColumn ??
+		(defaultScopeColumn() as unknown as ScopeColumnOptions<TScope, TScopeColumn>);
 
 	assertIdentifier(tablePrefix, "tablePrefix", { allowEmpty: true });
 	assertIdentifier(scopeColumn.name, "scopeColumn.name");
@@ -546,7 +597,7 @@ export function createPermissionsSchema<TScope = string>(
 				...extra("policies"),
 			];
 		},
-	) as unknown as PermissionPoliciesTable;
+	) as unknown as PermissionPoliciesTable<TScopeColumn>;
 
 	const permissionPolicyLinks = pgTable(
 		linksName,
@@ -573,7 +624,7 @@ export function createPermissionsSchema<TScope = string>(
 				...extra("links"),
 			];
 		},
-	) as unknown as PermissionPolicyLinksTable;
+	) as unknown as PermissionPolicyLinksTable<TScopeColumn>;
 
 	const permissionScopeVersions = pgTable(
 		scopeVersionsName,
@@ -582,12 +633,10 @@ export function createPermissionsSchema<TScope = string>(
 			tables.scopeVersions = t as unknown as Record<string, PgColumn>;
 			return [
 				primaryKey({ name: `${scopeVersionsName}_pk`, columns: [t.scope] }),
-				// The poller's only query is `updated_at > $since`.
-				index(`${scopeVersionsName}_updated_at_index`).on(t.updatedAt),
 				...extra("scopeVersions"),
 			];
 		},
-	) as unknown as PermissionScopeVersionsTable;
+	) as unknown as PermissionScopeVersionsTable<TScopeColumn>;
 
 	// Priming. `pgTable()` *stores* its config callback rather than calling it, and
 	// drizzle-kit later calls each table's independently and in no guaranteed
@@ -609,7 +658,11 @@ export function createPermissionsSchema<TScope = string>(
 	attachMeta(permissionPolicyLinks, meta);
 	attachMeta(permissionScopeVersions, meta);
 
-	return { permissionPolicies, permissionPolicyLinks, permissionScopeVersions };
+	return {
+		permissionPolicies,
+		permissionPolicyLinks,
+		permissionScopeVersions,
+	} as PermissionsSchema<TScopeColumn>;
 }
 
 // ---------------------------------------------------------------------------
@@ -629,7 +682,7 @@ export interface PermissionsPostgresPolicyOptions {
 	 *
 	 * The default is the carve-out the design argues for and a security reviewer
 	 * has to sign off on: the invalidation poller runs
-	 * `SELECT scope, version … WHERE updated_at > $1` with **no** tenant context,
+	 * `SELECT scope, version …` with **no** tenant context,
 	 * so under RLS it returns zero rows and no cache ever invalidates. The table
 	 * holds no tenant *data* — only a monotonic counter keyed by tenant id, a
 	 * cache-coherence channel — so leaving it unprotected introduces no

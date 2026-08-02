@@ -2,7 +2,8 @@ import "reflect-metadata";
 import { Controller, Get, Injectable, Module } from "@nestjs/common";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { INestApplication } from "@nestjs/common";
+import { MemoryPolicyStore } from "@nestm/permissions-core";
+import type { DynamicModule, INestApplication } from "@nestjs/common";
 import type {
 	EntityGraph,
 	PolicyBundle,
@@ -16,11 +17,13 @@ import {
 	EntityProviderRegistry,
 	PermissionsModule,
 	PermissionsService,
+	POLICY_STORE,
 	PolicySetManager,
 	Public,
 	type AuthorizationEngine,
 	type FeatureEntityProvider,
 	type PermissionsCheckRequest,
+	type PolicyStoreDefinition,
 } from "../../src/index.ts";
 import { createTestApp } from "../shared/test-app.ts";
 import { testHttpAdapter } from "../shared/http-adapter.ts";
@@ -63,6 +66,31 @@ class TestEntityProvider implements FeatureEntityProvider {
 	imports: [PermissionsModule.forFeature({ entityProviders: [TestEntityProvider] })],
 })
 class FeatureModule {}
+
+class DelayedSiblingStore extends MemoryPolicyStore {}
+
+@Module({})
+class DelayedSiblingStoreModule {
+	static register(): DynamicModule {
+		return {
+			module: DelayedSiblingStoreModule,
+			global: true,
+			providers: [
+				{
+					provide: DelayedSiblingStore,
+					useFactory: async (): Promise<DelayedSiblingStore> => {
+						// Nest instantiates sibling-module providers concurrently. The delay
+						// makes the old `ModuleRef.get()` race deterministic: the wrapper is
+						// registered, but its instance is still null.
+						await new Promise<void>((resolve) => setTimeout(resolve, 10));
+						return new DelayedSiblingStore();
+					},
+				},
+			],
+			exports: [DelayedSiblingStore],
+		};
+	}
+}
 
 /** A store whose every operation fails — the boot-time outage case. */
 class BrokenStore implements PolicyStore {
@@ -218,6 +246,50 @@ describe(`PermissionsModule (${testHttpAdapter})`, () => {
 				entities: [...memberGraph(IDS.member, "member"), ...runGraph()],
 			}),
 		).resolves.toMatchObject({ allowed: true });
+	});
+
+	it("awaits a delayed sibling store configured with useExisting", async () => {
+		const { Test } = await import("@nestjs/testing");
+		const moduleRef = await Test.createTestingModule({
+			imports: [
+				DelayedSiblingStoreModule.register(),
+				PermissionsModule.forRoot({
+					vocabulary: testVocabulary,
+					store: { useExisting: DelayedSiblingStore },
+					disableGlobalGuard: true,
+				}),
+			],
+		}).compile();
+
+		try {
+			expect(moduleRef.get(POLICY_STORE)).toBeInstanceOf(DelayedSiblingStore);
+		} finally {
+			await moduleRef.close();
+		}
+	});
+
+	it("awaits delayed dependencies injected into a store useFactory", async () => {
+		const { Test } = await import("@nestjs/testing");
+		const store: PolicyStoreDefinition = {
+			useFactory: (dependency: DelayedSiblingStore) => dependency,
+			inject: [DelayedSiblingStore],
+		};
+		const moduleRef = await Test.createTestingModule({
+			imports: [
+				DelayedSiblingStoreModule.register(),
+				PermissionsModule.forRoot({
+					vocabulary: testVocabulary,
+					store,
+					disableGlobalGuard: true,
+				}),
+			],
+		}).compile();
+
+		try {
+			expect(moduleRef.get(POLICY_STORE)).toBeInstanceOf(DelayedSiblingStore);
+		} finally {
+			await moduleRef.close();
+		}
 	});
 
 	it("discovers a forFeature entity provider and decides without explicit entities", async () => {

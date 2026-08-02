@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { Type } from "@nestjs/common";
-import { entityGraph, fail } from "@nestm/permissions-core";
+import { PermissionsError, entityGraph, fail, isPermissionsError } from "@nestm/permissions-core";
 import type {
 	AnyVocabulary,
 	EntityGraph,
@@ -19,6 +19,8 @@ export interface RouteEntityRequest {
 	readonly action: string;
 	/** Absent on the query-plan path, where there is no single resource. */
 	readonly resource?: EntityRef;
+	/** Present on the query-plan path so providers know which row type is unresolved. */
+	readonly resourceType?: string;
 }
 
 /**
@@ -215,7 +217,12 @@ export class EntityProviderRegistry {
 		}
 
 		for (const registration of this.registrations) {
-			const graph = await registration.provider.resolvePrincipal?.(asProviderRequest(request));
+			let graph: EntityGraph | undefined;
+			try {
+				graph = await registration.provider.resolvePrincipal?.(asProviderRequest(request));
+			} catch (error) {
+				throw entityProviderFailure(error, registration.name, "resolvePrincipal", request.scope);
+			}
 			if (graph !== undefined && graph.length > 0) {
 				return entityGraph(...graph);
 			}
@@ -228,13 +235,18 @@ export class EntityProviderRegistry {
 		request: EntityResolutionRequest<AnyVocabulary>,
 	): Promise<EntityGraph> {
 		const parts: EntityGraph[] = [];
-		for (const { provider } of this.registrations) {
+		for (const { name, provider } of this.registrations) {
 			// Optional-call rather than an extracted method reference, so `this`
 			// stays bound to the provider instance.
-			const graph =
-				method === "resolveResource"
-					? await provider.resolveResource?.(asProviderRequest(request))
-					: await provider.resolveAdditional?.(asProviderRequest(request));
+			let graph: EntityGraph | undefined;
+			try {
+				graph =
+					method === "resolveResource"
+						? await provider.resolveResource?.(asProviderRequest(request))
+						: await provider.resolveAdditional?.(asProviderRequest(request));
+			} catch (error) {
+				throw entityProviderFailure(error, name, method, request.scope);
+			}
 			if (graph !== undefined) {
 				parts.push(graph);
 			}
@@ -255,4 +267,22 @@ export class EntityProviderRegistry {
 function asProviderRequest(request: EntityResolutionRequest<AnyVocabulary>): never {
 	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- see above
 	return request as never;
+}
+
+function entityProviderFailure(
+	error: unknown,
+	provider: string,
+	method: (typeof RESOLVER_METHODS)[number],
+	scope: string,
+): PermissionsError {
+	if (isPermissionsError(error)) {
+		return error;
+	}
+	return new PermissionsError(
+		"ENTITY_RESOLUTION",
+		`Entity provider '${provider}' failed in ${method}: ${
+			error instanceof Error ? error.message : String(error)
+		}`,
+		{ cause: error, scope },
+	);
 }

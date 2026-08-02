@@ -53,9 +53,10 @@ export interface PolicyStoreDriverOptions {
 	/**
 	 * Invalidation poll. Default `{ intervalMs: 5000 }`; `false` disables it.
 	 *
-	 * One query per tick regardless of tenant count — `WHERE updated_at > $since`
-	 * over the scope-versions table — so the cost is O(changed scopes), not
-	 * O(cached scopes).
+	 * One query per tick reads `(scope, version)` from the scope-versions table and
+	 * compares its monotonic counters with the previous snapshot. Counters avoid
+	 * the out-of-order-commit hole of a timestamp watermark; query count remains
+	 * constant, while rows returned are O(all scopes).
 	 */
 	readonly poll?: { readonly intervalMs?: number } | false;
 	/** Opt-in `LISTEN`/`NOTIFY`. Off by default; see {@link PolicyNotifyOptions}. */
@@ -65,7 +66,7 @@ export interface PolicyStoreDriverOptions {
 	 *
 	 * The poller must never crash the process and must never clear the cache: a
 	 * stale-but-known policy set beats an empty one, so a failed tick logs here,
-	 * backs off, and retries with its `since` watermark untouched.
+	 * backs off, and retries with its version snapshot untouched.
 	 */
 	readonly onError?: (error: unknown) => void;
 	/**

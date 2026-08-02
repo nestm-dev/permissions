@@ -225,6 +225,7 @@ export interface EntityResolutionRequest<V> {
   readonly principal: EntityRef<string>;
   readonly action: ActionOf<V>;
   readonly resource?: EntityRef<string>;
+  readonly resourceType?: EntityNameOf<V>; // present when planning without a resource instance
 }
 
 export interface EntityProvider<V extends AnyVocabulary> {

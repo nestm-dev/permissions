@@ -4,9 +4,9 @@
 // Three rules make this component boring in the right way, and all three are
 // about what happens when the database is *unhappy*:
 //
-//   1. **A failed tick never touches the watermark.** The next tick asks the
+//   1. **A failed tick never touches the observed-version snapshot.** The next tick asks the
 //      same question again, so nothing is skipped. The alternative — advancing
-//      `since` optimistically — loses an invalidation permanently and the cache
+//      observed state optimistically — loses an invalidation permanently and the cache
 //      serves the pre-change policy set until the next unrelated write.
 //   2. **A failed tick never clears anything.** Stale-but-known beats empty:
 //      an empty policy set is `deny`, so "the poller could not reach the
@@ -46,7 +46,7 @@ const defaultTimers: WatcherTimers = {
 export interface PolicyChangeWatcherOptions {
 	/** Base delay between successful ticks, in milliseconds. */
 	readonly intervalMs: number;
-	/** Runs once before the first tick — seeds the watermark. */
+	/** Runs once before the first tick — seeds the observed state. */
 	readonly seed: () => Promise<void>;
 	/** One poll. Emits whatever it found; must not swallow its own errors. */
 	readonly tick: () => Promise<void>;
@@ -147,7 +147,7 @@ export class PolicyChangeWatcher {
 			await this.runOnce();
 			this.#consecutiveFailures = 0;
 		} catch (error) {
-			// Note what does *not* happen here: the watermark is untouched (it lives
+			// Note what does *not* happen here: the observed state is untouched (it lives
 			// in `tick`'s closure and is only advanced on success) and no cache is
 			// cleared. The next tick re-asks the same question.
 			this.#consecutiveFailures += 1;

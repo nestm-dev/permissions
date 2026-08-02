@@ -81,6 +81,7 @@ import type {
 	ActionOf,
 	AnyVocabulary,
 	ContextFor,
+	EntityNameOf,
 	PrincipalTypeFor,
 	ResourceTypeFor,
 } from "./vocabulary/types.ts";
@@ -960,6 +961,8 @@ export class PermissionsEngine<V extends AnyVocabulary> {
 			principal: request.principal,
 			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `PlanRequest.action` is `ActionOf<V>`; the normalised form only widens it
 			action: request.action as ActionOf<V>,
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- PlanRequest.resourceType is vocabulary-checked before normalization widens it
+			resourceType: request.resourceType as EntityNameOf<V>,
 		};
 
 		const parts: EntityJson[] = [...(await this.#principalGraph(provider, resolution, newBatch()))];
@@ -1090,6 +1093,8 @@ export class PermissionsEngine<V extends AnyVocabulary> {
 			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- see above
 			action: request.action as ActionOf<V>,
 			resource: request.resource,
+			// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- CheckRequest.resource is vocabulary-checked before normalization widens it
+			resourceType: request.resource.type as EntityNameOf<V>,
 		};
 
 		const parts: EntityJson[] = [...(await this.#principalGraph(provider, resolution, batch))];

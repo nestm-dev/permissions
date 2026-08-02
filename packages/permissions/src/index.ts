@@ -115,7 +115,9 @@ export { PermissionsService } from "./services/permissions.service.ts";
 export { PolicySetManager } from "./services/policy-set.manager.ts";
 export {
 	RequestAuthorization,
+	type RequestAuthorizationEntityResolver,
 	type RequestAuthorizationInit,
+	type RequestCanOptions,
 	type RequestPlanOptions,
 } from "./services/request-authorization.ts";
 export { PermissionsGuard } from "./guards/permissions.guard.ts";

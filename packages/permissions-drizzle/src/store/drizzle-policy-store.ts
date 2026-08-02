@@ -32,14 +32,24 @@ import {
 	type TemplateLinkRecord,
 	type Unsubscribe,
 } from "@nestm/permissions-core";
-import { desc, eq, inArray, sql, type SQL } from "drizzle-orm";
-import type { PgColumn, PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
+import { eq, inArray, sql, type SQL } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 
 import {
 	permissionsSchemaMetaOf,
 	type PermissionsSchema,
 	type ScopeColumnOptions,
 } from "../schema.ts";
+import {
+	defaultDrizzlePolicyStoreExecutor,
+	type DrizzlePolicyStoreAccess,
+	type DrizzlePolicyStoreCommitOwnership,
+	type DrizzlePolicyStoreDatabase,
+	type DrizzlePolicyStoreExecution,
+	type DrizzlePolicyStoreExecutor,
+	type DrizzlePolicyStoreIsolationLevel,
+	type DrizzlePolicyStoreOperation,
+} from "./executor.ts";
 import { DEFAULT_POLL_INTERVAL_MS, type PolicyStoreDriverOptions } from "./options.ts";
 import {
 	assertLinkRecord,
@@ -55,26 +65,29 @@ import {
 } from "./rows.ts";
 import { PolicyChangeWatcher, PolicyNotifyListener, type WatcherTimers } from "./watcher.ts";
 
-/**
- * Anything that can run this store's statements.
- *
- * `PgDatabase` is the common supertype of `NodePgDatabase` and the `tx` handed to
- * a `transaction()` callback, which is what lets every private method be written
- * once and used both inside and outside a transaction.
- *
- * It is also the **constructor**'s parameter type. Running the store over a
- * transaction handle is not an exotic call shape but the required one under RLS
- * (`set_config(…, true)` is transaction-local), and this package's own README
- * tells consumers to do it — so a constructor demanding `NodePgDatabase` forced
- * a `as unknown as NodePgDatabase` double-cast at the one call site the design
- * cares most about. A `PgTransaction` is a `PgDatabase` and is not a
- * `NodePgDatabase`; typing the parameter as the supertype the class already uses
- * internally is the whole fix.
- */
-export type DrizzlePolicyStoreDatabase = PgDatabase<PgQueryResultHKT, Record<string, unknown>>;
+export type {
+	DrizzlePolicyStoreAccess,
+	DrizzlePolicyStoreCommitOwnership,
+	DrizzlePolicyStoreDatabase,
+	DrizzlePolicyStoreExecution,
+	DrizzlePolicyStoreExecutor,
+	DrizzlePolicyStoreIsolationLevel,
+	DrizzlePolicyStoreOperation,
+} from "./executor.ts";
 
 /** Options the store accepts, plus the seams its own tests need. */
 export interface DrizzlePolicyStoreOptions extends PolicyStoreDriverOptions {
+	/**
+	 * Request-aware transaction executor for foreground reads and writes.
+	 *
+	 * Omit it for `db.transaction(...)` over a root database handle. An ambient
+	 * Drizzle transaction is rejected without an explicit executor because its
+	 * nested `transaction()` is only a savepoint. Supply an executor under
+	 * transaction-local RLS so every foreground operation derives and pins the
+	 * request tenant before the store issues SQL. Background polling still uses
+	 * the constructor's `db` because it has no request context.
+	 */
+	readonly executor?: DrizzlePolicyStoreExecutor;
 	/** Timer seam for the poller. Tests drive ticks with it; production never sets it. */
 	readonly timers?: WatcherTimers;
 }
@@ -96,14 +109,15 @@ export interface DrizzlePolicyStoreOptions extends PolicyStoreDriverOptions {
  */
 export class DrizzlePolicyStore implements PolicyStore {
 	readonly #db: DrizzlePolicyStoreDatabase;
+	readonly #executor: DrizzlePolicyStoreExecutor;
 	readonly #schema: PermissionsSchema;
 	readonly #scopeColumn: ScopeColumnOptions<unknown>;
 	readonly #options: DrizzlePolicyStoreOptions;
 	readonly #listeners = new Set<PolicyChangeListener>();
 	#watcher: PolicyChangeWatcher | undefined;
 	#notifier: PolicyNotifyListener | undefined;
-	/** Exact-precision watermark: the last `updated_at` the poller has already seen. */
-	#since: string | undefined;
+	/** Last committed monotonic version observed for every scope. */
+	#polledVersions: Map<PolicyScopeId, number> | undefined;
 	#disposed = false;
 
 	constructor(
@@ -112,6 +126,7 @@ export class DrizzlePolicyStore implements PolicyStore {
 		options: DrizzlePolicyStoreOptions = {},
 	) {
 		this.#db = db;
+		this.#executor = options.executor ?? defaultDrizzlePolicyStoreExecutor(db);
 		this.#schema = schema;
 		this.#options = options;
 
@@ -139,24 +154,34 @@ export class DrizzlePolicyStore implements PolicyStore {
 	/**
 	 * {@inheritDoc PolicyStore.load}
 	 *
-	 * The three reads are issued **sequentially**, and that is deliberate despite
-	 * costing two extra round trips. `db` here may be a `transaction()` handle
-	 * rather than a pool — which is not an exotic call shape but the *required*
-	 * one under row-level security, since `set_config(…, true)` is
-	 * transaction-local and a store querying a different pooled connection would
-	 * see no tenant context and read nothing. A transaction handle is a single
-	 * `pg` client, and overlapping queries on one client are deprecated in
-	 * `pg@8` and removed in `pg@9`. `load()` is a cold path (D1: the engine
-	 * caches per scope and `watch()` invalidates), so three round trips there is
-	 * the cheap side of that trade.
+	 * The three reads share one read-only, repeatable-read transaction. Without the
+	 * snapshot, a policy write committed between the policy/link queries and the
+	 * version query could cache a mixed bundle under the new version indefinitely.
+	 *
+	 * They are issued **sequentially**, and that is deliberate despite costing two
+	 * extra round trips. The executor supplies one pinned `pg` client; overlapping
+	 * queries on one client are deprecated in `pg@8` and removed in `pg@9`.
+	 * `load()` is a cold path (D1: the engine caches per scope and `watch()`
+	 * invalidates), so three round trips there is the cheap side of that trade.
 	 */
 	async load(scope: PolicyScopeId): Promise<PolicyBundle> {
 		const scopes = this.#effectiveScopes(scope);
+		return this.#executor.run(
+			execution("load", "read-only", scopes, "repeatable read"),
+			(executor) => this.#loadSnapshot(executor, scope, scopes),
+		);
+	}
+
+	async #loadSnapshot(
+		executor: DrizzlePolicyStoreDatabase,
+		scope: PolicyScopeId,
+		scopes: readonly PolicyScopeId[],
+	): Promise<PolicyBundle> {
 		const values = scopes.map((candidate) => this.#toColumn(candidate));
 
 		const { permissionPolicies, permissionPolicyLinks } = this.#schema;
 
-		const policyRows = await this.#db
+		const policyRows = await executor
 			.select({
 				scope: permissionPolicies.scope,
 				policyId: permissionPolicies.policyId,
@@ -171,7 +196,7 @@ export class DrizzlePolicyStore implements PolicyStore {
 			.from(permissionPolicies)
 			.where(this.#scopeIn(permissionPolicies.scope, values));
 
-		const linkRows = await this.#db
+		const linkRows = await executor
 			.select({
 				scope: permissionPolicyLinks.scope,
 				linkId: permissionPolicyLinks.linkId,
@@ -185,7 +210,7 @@ export class DrizzlePolicyStore implements PolicyStore {
 			.from(permissionPolicyLinks)
 			.where(this.#scopeIn(permissionPolicyLinks.scope, values));
 
-		const versions = await this.#readVersions(this.#db, scope);
+		const versions = await this.#readVersions(executor, scope);
 
 		const policies = (policyRows as readonly PolicyRow[])
 			.map((row) => toPolicyRecord(row, this.#toScope(row.scope)))
@@ -206,7 +231,10 @@ export class DrizzlePolicyStore implements PolicyStore {
 
 	/** {@inheritDoc PolicyStore.currentVersion} */
 	async currentVersion(scope: PolicyScopeId): Promise<string> {
-		return this.#readVersions(this.#db, scope);
+		return this.#executor.run(
+			execution("currentVersion", "read-only", this.#effectiveScopes(scope)),
+			(executor) => this.#readVersions(executor, scope),
+		);
 	}
 
 	// -----------------------------------------------------------------------
@@ -228,30 +256,33 @@ export class DrizzlePolicyStore implements PolicyStore {
 
 		const table = this.#schema.permissionPolicies;
 
-		await this.#db.transaction(async (tx) => {
-			for (const record of policies) {
-				const values = {
-					scope: this.#toColumn(record.scope),
-					...policyRowValues(record),
-				};
-				await tx
-					.insert(table)
-					.values(values as never)
-					.onConflictDoUpdate({
-						target: [table.scope, table.policyId],
-						set: {
-							kind: values.kind,
-							cedarJson: values.cedarJson,
-							cedarText: values.cedarText,
-							description: values.description,
-							annotations: values.annotations,
-							enabled: values.enabled,
-							updatedAt: values.updatedAt,
-						} as never,
-					});
-			}
-			await this.#bump(tx, touched);
-		});
+		await this.#executor.run(
+			execution("save", "read-write", [...touched].toSorted()),
+			async (tx) => {
+				for (const record of policies) {
+					const values = {
+						scope: this.#toColumn(record.scope),
+						...policyRowValues(record),
+					};
+					await tx
+						.insert(table)
+						.values(values as never)
+						.onConflictDoUpdate({
+							target: [table.scope, table.policyId],
+							set: {
+								kind: values.kind,
+								cedarJson: values.cedarJson,
+								cedarText: values.cedarText,
+								description: values.description,
+								annotations: values.annotations,
+								enabled: values.enabled,
+								updatedAt: values.updatedAt,
+							} as never,
+						});
+				}
+				await this.#bump(tx, touched);
+			},
+		);
 
 		this.#commit(touched, "save");
 	}
@@ -266,16 +297,19 @@ export class DrizzlePolicyStore implements PolicyStore {
 		const table = this.#schema.permissionPolicies;
 		const scopeValue = this.#toColumn(scope);
 
-		const removed = await this.#db.transaction(async (tx) => {
-			const result = await tx
-				.delete(table)
-				.where(both(eq(table.scope, scopeValue as never), inArray(table.policyId, [...ids])));
-			const count = rowCountOf(result);
-			if (count > 0) {
-				await this.#bump(tx, new Set([scope]));
-			}
-			return count > 0;
-		});
+		const removed = await this.#executor.run(
+			execution("delete", "read-write", [scope]),
+			async (tx) => {
+				const result = await tx
+					.delete(table)
+					.where(both(eq(table.scope, scopeValue as never), inArray(table.policyId, [...ids])));
+				const count = rowCountOf(result);
+				if (count > 0) {
+					await this.#bump(tx, new Set([scope]));
+				}
+				return count > 0;
+			},
+		);
 
 		this.#commit(removed ? new Set([scope]) : new Set(), "delete");
 	}
@@ -288,7 +322,7 @@ export class DrizzlePolicyStore implements PolicyStore {
 		const table = this.#schema.permissionPolicyLinks;
 		const values = { scope: this.#toColumn(link.scope), ...linkRowValues(link) };
 
-		await this.#db.transaction(async (tx) => {
+		await this.#executor.run(execution("linkTemplate", "read-write", [link.scope]), async (tx) => {
 			await tx
 				.insert(table)
 				.values(values as never)
@@ -316,16 +350,19 @@ export class DrizzlePolicyStore implements PolicyStore {
 		const table = this.#schema.permissionPolicyLinks;
 		const scopeValue = this.#toColumn(scope);
 
-		const removed = await this.#db.transaction(async (tx) => {
-			const result = await tx
-				.delete(table)
-				.where(both(eq(table.scope, scopeValue as never), eq(table.linkId, linkId)));
-			const count = rowCountOf(result);
-			if (count > 0) {
-				await this.#bump(tx, new Set([scope]));
-			}
-			return count > 0;
-		});
+		const removed = await this.#executor.run(
+			execution("unlinkTemplate", "read-write", [scope]),
+			async (tx) => {
+				const result = await tx
+					.delete(table)
+					.where(both(eq(table.scope, scopeValue as never), eq(table.linkId, linkId)));
+				const count = rowCountOf(result);
+				if (count > 0) {
+					await this.#bump(tx, new Set([scope]));
+				}
+				return count > 0;
+			},
+		);
 
 		this.#commit(removed ? new Set([scope]) : new Set(), "unlink");
 	}
@@ -380,13 +417,13 @@ export class DrizzlePolicyStore implements PolicyStore {
 	}
 
 	/**
-	 * Runs one poll tick immediately, seeding the watermark if needed.
+	 * Runs one poll tick immediately, seeding the version snapshot if needed.
 	 *
 	 * The suites use it to assert "exactly one event per changed scope" without
 	 * waiting on a timer; production goes through {@link watch}.
 	 */
 	async pollOnce(): Promise<void> {
-		if (this.#since === undefined) {
+		if (this.#polledVersions === undefined) {
 			await this.#seed();
 		}
 		await this.#tick();
@@ -433,57 +470,61 @@ export class DrizzlePolicyStore implements PolicyStore {
 	}
 
 	async #seed(): Promise<void> {
-		const table = this.#schema.permissionScopeVersions;
-		const rows = await this.#db
-			.select({ at: sql<string>`coalesce(max(${table.updatedAt}), now())::text` })
-			.from(table);
-		this.#since = rows[0]?.at ?? new Date().toISOString();
+		this.#polledVersions = await this.#readAllScopeVersions();
 	}
 
 	/**
-	 * One query, whatever the tenant count.
+	 * One query, comparing the per-scope monotonic counters in memory.
 	 *
-	 * The watermark is carried as the database's own `::text` rendering rather than
-	 * as a JavaScript `Date`: `timestamptz` has microsecond precision and `Date`
-	 * has milliseconds, so a millisecond-truncated watermark re-reports the same
-	 * row on every tick forever (`updated_at > 12:00:00.000` never excludes
-	 * `12:00:00.0005`).
+	 * A timestamp watermark is not commit ordered: PostgreSQL `now()` is the
+	 * transaction start time, so a transaction that starts first but commits last
+	 * can land behind an already-advanced watermark and be missed forever. Version
+	 * comparison is independent of clocks and commit order.
 	 */
 	async #tick(): Promise<void> {
-		const since = this.#since;
-		if (since === undefined) {
+		const previous = this.#polledVersions;
+		if (previous === undefined) {
 			return;
 		}
 
-		const table = this.#schema.permissionScopeVersions;
-		const rows = await this.#db
-			.select({ scope: table.scope, at: sql<string>`${table.updatedAt}::text` })
-			.from(table)
-			.where(sql`${table.updatedAt} > ${since}::timestamptz`)
-			.orderBy(desc(table.updatedAt));
-
-		if (rows.length === 0) {
-			return;
-		}
-
-		// Ordered descending, so the first row carries the new watermark. Advanced
-		// only here — a throw above leaves it where it was, and the next tick asks
-		// the same question again.
-		this.#since = rows[0]?.at ?? since;
+		const current = await this.#readAllScopeVersions();
 
 		// `PolicyChangeEvent['scope']` rather than `PolicyScopeId | '*'` spelled out:
 		// `PolicyScopeId` is a `string` alias, so the explicit union reads as
 		// redundant to a type-aware linter while carrying exactly the meaning core's
 		// event type already names.
 		const scopes = new Set<PolicyChangeEvent["scope"]>();
-		for (const row of rows) {
-			const scope = this.#toScope(row.scope);
-			scopes.add(isGlobalScope(scope) ? "*" : scope);
+		for (const [scope, version] of current) {
+			if (previous.get(scope) !== version) {
+				scopes.add(isGlobalScope(scope) ? "*" : scope);
+			}
 		}
+		// The application role is intentionally not granted DELETE on this table,
+		// but report an out-of-band removal fail-closed rather than silently keeping
+		// the old generation forever.
+		for (const scope of previous.keys()) {
+			if (!current.has(scope)) {
+				scopes.add(isGlobalScope(scope) ? "*" : scope);
+			}
+		}
+
+		// Advance only after the complete read and conversion succeeded. A failed
+		// tick keeps the previous map, so the next one still reports every change.
+		this.#polledVersions = current;
 
 		for (const scope of scopes) {
 			this.#notify({ scope, reason: "external" });
 		}
+	}
+
+	async #readAllScopeVersions(): Promise<Map<PolicyScopeId, number>> {
+		const table = this.#schema.permissionScopeVersions;
+		const rows = await this.#db.select({ scope: table.scope, version: table.version }).from(table);
+		const versions = new Map<PolicyScopeId, number>();
+		for (const row of rows as readonly { readonly scope: unknown; readonly version: number }[]) {
+			versions.set(this.#toScope(row.scope), Number(row.version));
+		}
+		return versions;
 	}
 
 	/** The scope values `load(scope)` reads: the scope, plus the global one when there is one. */
@@ -671,4 +712,22 @@ function both(left: SQL, right: SQL): SQL {
 function rowCountOf(result: unknown): number {
 	const count = (result as { rowCount?: unknown }).rowCount;
 	return typeof count === "number" ? count : 0;
+}
+
+/** Builds an immutable executor context so its exact scope set cannot be widened in-place. */
+function execution(
+	operation: DrizzlePolicyStoreOperation,
+	access: DrizzlePolicyStoreAccess,
+	scopes: readonly PolicyScopeId[],
+	isolationLevel: DrizzlePolicyStoreIsolationLevel = "read committed",
+): DrizzlePolicyStoreExecution {
+	const commitOwnership: DrizzlePolicyStoreCommitOwnership =
+		access === "read-write" ? "required" : "not-required";
+	return Object.freeze({
+		operation,
+		access,
+		isolationLevel,
+		commitOwnership,
+		scopes: Object.freeze([...scopes]),
+	});
 }

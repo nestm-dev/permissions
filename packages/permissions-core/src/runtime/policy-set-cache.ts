@@ -20,7 +20,7 @@
 
 import type { CedarBinding, PolicySet } from "../cedar/binding.ts";
 import { unwrapCheckParse } from "../cedar/answers.ts";
-import { PermissionsError } from "../diagnostics/errors.ts";
+import { PermissionsError, isPermissionsError } from "../diagnostics/errors.ts";
 import { buildPolicySet } from "../policy/policy-set-builder.ts";
 import type {
 	PolicyBundle,
@@ -177,6 +177,13 @@ export class PolicySetCache {
 	readonly #flight = new SingleFlight<PolicyScopeId, PolicySetHandle>();
 	readonly #owned = new Set<string>();
 	readonly #watching: boolean;
+	/**
+	 * Invalidation generations close the cold-load race that an entry-local
+	 * `stale` flag cannot see: a scope may be invalidated while its first
+	 * `store.load()` is still in flight, before there is an entry to mark.
+	 */
+	readonly #scopeGenerations = new Map<PolicyScopeId, number>();
+	#globalGeneration = 0;
 
 	#unsubscribe: Unsubscribe | undefined;
 	#disposed = false;
@@ -283,12 +290,14 @@ export class PolicySetCache {
 	// oxlint-disable-next-line typescript/no-redundant-type-constituents -- `PolicyScopeId` widens to `string`, but spelling the sentinel out is the contract
 	invalidate(scope: PolicyScopeId | "*"): void {
 		if (scope === "*") {
+			this.#globalGeneration += 1;
 			for (const entry of this.#entries.values()) {
 				entry.stale = true;
 			}
 			return;
 		}
 
+		this.#scopeGenerations.set(scope, (this.#scopeGenerations.get(scope) ?? 0) + 1);
 		const entry = this.#entries.peek(scope);
 		if (entry !== undefined) {
 			entry.stale = true;
@@ -401,8 +410,17 @@ export class PolicySetCache {
 			return this.#load(scope);
 		}
 
+		const generation = this.#generationFor(scope);
 		this.#revalidations += 1;
 		const version = await this.#probe(scope);
+
+		// A watch event raced the probe. Even if the returned version happens to
+		// match, serving the resident policy set for this call would lose the
+		// freshness promise that made the engine stop probing on its hit path.
+		if (!this.#generationMatches(scope, generation)) {
+			this.#misses += 1;
+			return this.#load(scope);
+		}
 
 		if (version === entry.version) {
 			const now = this.#clock();
@@ -431,29 +449,7 @@ export class PolicySetCache {
 
 	async #load(scope: PolicyScopeId): Promise<PolicySetHandle> {
 		const psetId = this.psetIdFor(scope);
-
-		let bundle: PolicyBundle;
-		try {
-			this.#loads += 1;
-			bundle = await this.#store.load(scope);
-		} catch (error) {
-			this.#failures += 1;
-			// The previous entry (and the policy set resident under `psetId`) is
-			// left exactly as it was: stale-but-known beats empty.
-			throw this.#storeError(error, scope, "load policies for");
-		}
-
-		let set: PolicySet;
-		try {
-			set = buildPolicySet(bundle, { namespace: this.#namespace });
-			// Admission check before anything reaches the WASM: a rejected set must
-			// leave the resident one untouched, which it does precisely because
-			// nothing has been preparsed yet at this point.
-			this.#onPolicySetBuilt?.(set, scope);
-		} catch (error) {
-			this.#failures += 1;
-			throw error;
-		}
+		const { bundle, set } = await this.#buildStablePolicySet(scope);
 
 		try {
 			this.#preparses += 1;
@@ -488,6 +484,55 @@ export class PolicySetCache {
 		return { psetId, version: bundle.version, cache: "miss" };
 	}
 
+	async #buildStablePolicySet(
+		scope: PolicyScopeId,
+	): Promise<{ readonly bundle: PolicyBundle; readonly set: PolicySet }> {
+		for (;;) {
+			const generation = this.#generationFor(scope);
+			let bundle: PolicyBundle;
+			try {
+				this.#loads += 1;
+				bundle = await this.#store.load(scope);
+			} catch (error) {
+				this.#failures += 1;
+				// The previous entry (and its resident WASM policy set) is left
+				// untouched: stale-but-known beats empty.
+				throw this.#storeError(error, scope, "load policies for");
+			}
+
+			let set: PolicySet;
+			try {
+				set = buildPolicySet(bundle, { namespace: this.#namespace });
+				// Admission runs before anything reaches WASM, so rejection leaves the
+				// resident policy set untouched.
+				this.#onPolicySetBuilt?.(set, scope);
+			} catch (error) {
+				this.#failures += 1;
+				throw error;
+			}
+
+			// Do not preparse a bundle loaded across an invalidation. Retry inside
+			// the same single-flight so every waiter receives a stable snapshot.
+			if (this.#generationMatches(scope, generation)) {
+				return { bundle, set };
+			}
+		}
+	}
+
+	#generationFor(scope: PolicyScopeId): readonly [global: number, scope: number] {
+		return [this.#globalGeneration, this.#scopeGenerations.get(scope) ?? 0];
+	}
+
+	#generationMatches(
+		scope: PolicyScopeId,
+		generation: readonly [global: number, scope: number],
+	): boolean {
+		return (
+			generation[0] === this.#globalGeneration &&
+			generation[1] === (this.#scopeGenerations.get(scope) ?? 0)
+		);
+	}
+
 	#release(scope: PolicyScopeId): void {
 		const psetId = this.psetIdFor(scope);
 		if (!this.#owned.delete(psetId)) {
@@ -507,7 +552,7 @@ export class PolicySetCache {
 	}
 
 	#storeError(error: unknown, scope: PolicyScopeId, action: string): Error {
-		if (error instanceof PermissionsError) {
+		if (isPermissionsError(error)) {
 			return error;
 		}
 		return new PermissionsError(

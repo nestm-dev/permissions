@@ -20,7 +20,9 @@ import {
 	index,
 	pgPolicy,
 	pgTable,
+	text,
 	uuid,
+	type AnyPgColumn,
 	type PgTableExtraConfigValue,
 } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
@@ -28,6 +30,7 @@ import { describe, expect, it } from "vitest";
 import {
 	assertTablesReady,
 	createPermissionsSchema,
+	type PermissionsSchema,
 	type RawPermissionsTables,
 } from "../../src/schema.ts";
 import { generateSchemaDdl } from "../../src/testing.ts";
@@ -38,6 +41,17 @@ const roleGrants = pgTable("schema_factory_role_grants", {
 	organizationId: uuid("organization_id").notNull(),
 	id: uuid("id").primaryKey(),
 });
+
+/** Mirrors RLS's string constraint and pins the concrete inline text builder. */
+function acceptsTextTenantColumn(
+	column: AnyPgColumn<{ data: string; columnType: "PgText" }>,
+): void {
+	void column;
+}
+
+function acceptsWidenedSchema(schema: PermissionsSchema): void {
+	void schema;
+}
 
 // ---------------------------------------------------------------------------
 // extraTableConfig: evaluation
@@ -224,6 +238,24 @@ describe("extraTableConfig shape", () => {
 // ---------------------------------------------------------------------------
 
 describe("the scope column's property name", () => {
+	it("preserves an inline scope builder's concrete text type on every table", () => {
+		const schema = createPermissionsSchema({
+			tablePrefix: "scope_type_",
+			scopeColumn: {
+				name: "organization_id",
+				column: () => text("organization_id").notNull(),
+				toScope: (value: string) => value,
+				fromScope: (scope: string) => scope,
+				supportsGlobalScope: false,
+			},
+		});
+
+		acceptsTextTenantColumn(schema.permissionPolicies.scope);
+		acceptsTextTenantColumn(schema.permissionPolicyLinks.scope);
+		acceptsTextTenantColumn(schema.permissionScopeVersions.scope);
+		acceptsWidenedSchema(schema);
+	});
+
 	it("is `scope` on every table whatever the SQL name is", async () => {
 		// The doc bug this pins: `scopeColumn.name` sets the SQL name only. The
 		// drizzle property stays `scope`, so `t.policies.organizationId` is

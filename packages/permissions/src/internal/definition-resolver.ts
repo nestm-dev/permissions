@@ -1,5 +1,5 @@
-import type { InjectionToken, Type } from "@nestjs/common";
-import type { ModuleRef } from "@nestjs/core";
+import { ModuleRef } from "@nestjs/core";
+import type { FactoryProvider, InjectionToken, Type } from "@nestjs/common";
 
 import type { ProviderDefinition } from "../interfaces/permissions-module-options.interface.ts";
 
@@ -22,8 +22,35 @@ export interface UseFactoryArm<T> {
 /** Any of the three provider-shaped arms. */
 export type ProviderArm<T> = UseClassArm<T> | UseExistingArm | UseFactoryArm<T>;
 
+/** Internal barrier used to order statically known sibling dependencies. */
+export const PROVIDER_DEFINITION_DEPENDENCIES_READY = Symbol(
+	"PROVIDER_DEFINITION_DEPENDENCIES_READY",
+);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+/**
+ * Resolves one token without assuming its sibling module has already finished
+ * instantiating the provider.
+ *
+ * Nest's synchronous `get()` can observe a registered async factory before its
+ * instance has been assigned. `resolve()` gives the container an asynchronous
+ * resolution path for that same token. Keep the fast path for providers that
+ * are already ready, then await the fallback only for a nullish observation.
+ */
+async function resolveToken<T>(moduleRef: ModuleRef, token: InjectionToken): Promise<T> {
+	// `InjectionToken` is wider than every `get` / `resolve` overload accepts;
+	// Nest resolves all of its arms identically at runtime.
+	// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- see above
+	const nestToken = token as Type<T>;
+	const existing = moduleRef.get<T>(nestToken, { strict: false });
+	if (existing !== undefined && existing !== null) {
+		return existing;
+	}
+
+	return moduleRef.resolve<T>(nestToken, undefined, { strict: false });
 }
 
 /**
@@ -39,6 +66,45 @@ export function isProviderArm<T>(definition: ProviderDefinition<T>): definition 
 		isRecord(definition) &&
 		("useClass" in definition || "useExisting" in definition || "useFactory" in definition)
 	);
+}
+
+/** Tokens a provider-shaped definition asks Nest to inject. */
+function providerDependencyTokens<T>(
+	definition: ProviderDefinition<T> | undefined,
+): readonly InjectionToken[] {
+	if (definition === undefined || !isProviderArm(definition)) {
+		return [];
+	}
+	if ("useExisting" in definition) {
+		return [definition.useExisting];
+	}
+	if ("useFactory" in definition) {
+		return definition.inject ?? [];
+	}
+	return [];
+}
+
+/**
+ * Builds an internal provider that makes Nest order visible sibling factories
+ * before this module resolves definitions through `ModuleRef`.
+ *
+ * Every dependency is optional on purpose. A global/exported sibling creates a
+ * real graph edge and is awaited. A non-global sibling remains invisible to
+ * normal injection, so the barrier receives `undefined` and the existing
+ * non-strict `ModuleRef` lookup remains the compatibility fallback.
+ */
+export function createProviderDefinitionReadinessProvider(
+	definitions: readonly (ProviderDefinition<object> | undefined)[],
+): FactoryProvider<true> {
+	const tokens = [
+		...new Set(definitions.flatMap((definition) => providerDependencyTokens(definition))),
+	];
+
+	return {
+		provide: PROVIDER_DEFINITION_DEPENDENCIES_READY,
+		inject: tokens.map((token) => ({ token, optional: true })),
+		useFactory: (..._dependencies: unknown[]): true => true,
+	};
 }
 
 /**
@@ -68,15 +134,11 @@ export async function resolveProviderDefinition<T>(
 	}
 
 	if ("useExisting" in definition) {
-		// `InjectionToken` is wider than every `get` overload accepts; Nest resolves
-		// any of its arms identically at runtime.
-		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- see above
-		return moduleRef.get<T>(definition.useExisting as Type<T>, { strict: false });
+		return resolveToken<T>(moduleRef, definition.useExisting);
 	}
 
-	const dependencies = (definition.inject ?? []).map((token) =>
-		// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- as above
-		moduleRef.get<unknown>(token as Type<unknown>, { strict: false }),
+	const dependencies = await Promise.all(
+		(definition.inject ?? []).map((token) => resolveToken<unknown>(moduleRef, token)),
 	);
 
 	// The factory's parameters are `never[]` so no caller can accidentally rely on
