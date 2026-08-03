@@ -1,5 +1,13 @@
 # @nestm/permissions-typeorm
 
+## 0.1.0-alpha.2
+
+### Patch Changes
+
+- Updated dependencies [ece4c40]
+- Updated dependencies [ece4c40]
+  - @nestm/permissions-core@0.1.0-alpha.2
+
 ## 0.1.0-alpha.1
 
 ### Patch Changes
