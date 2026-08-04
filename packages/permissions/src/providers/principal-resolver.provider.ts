@@ -2,9 +2,10 @@ import { ModuleRef } from "@nestjs/core";
 import type { FactoryProvider } from "@nestjs/common";
 
 import {
-	PROVIDER_DEFINITION_DEPENDENCIES_READY,
+	PRINCIPAL_RESOLVER_DEFINITION_DEPENDENCIES_READY,
 	resolveProviderDefinition,
 } from "../internal/definition-resolver.ts";
+import type { ProviderDefinitionDependencies } from "../internal/definition-resolver.ts";
 import { PERMISSIONS_MODULE_OPTIONS, PRINCIPAL_RESOLVER } from "../permissions.tokens.ts";
 import type { PermissionsModuleOptions } from "../interfaces/permissions-module-options.interface.ts";
 import type { PrincipalResolver } from "../interfaces/principal-resolver.interface.ts";
@@ -13,11 +14,17 @@ import type { PrincipalResolver } from "../interfaces/principal-resolver.interfa
 export async function resolvePrincipalResolver(
 	options: PermissionsModuleOptions,
 	moduleRef: ModuleRef,
+	dependencies?: ProviderDefinitionDependencies,
 ): Promise<PrincipalResolver | undefined> {
 	if (options.principalResolver === undefined) {
 		return undefined;
 	}
-	return resolveProviderDefinition(options.principalResolver, moduleRef, "principalResolver");
+	return resolveProviderDefinition(
+		options.principalResolver,
+		moduleRef,
+		"principalResolver",
+		dependencies,
+	);
 }
 
 /**
@@ -33,11 +40,11 @@ export const principalResolverProvider: FactoryProvider<Promise<PrincipalResolve
 	inject: [
 		PERMISSIONS_MODULE_OPTIONS,
 		ModuleRef,
-		{ token: PROVIDER_DEFINITION_DEPENDENCIES_READY, optional: true },
+		{ token: PRINCIPAL_RESOLVER_DEFINITION_DEPENDENCIES_READY, optional: true },
 	],
 	useFactory: async (
 		options: PermissionsModuleOptions,
 		moduleRef: ModuleRef,
-		_dependenciesReady?: true,
-	) => resolvePrincipalResolver(options, moduleRef),
+		dependencies?: ProviderDefinitionDependencies,
+	) => resolvePrincipalResolver(options, moduleRef, dependencies),
 };

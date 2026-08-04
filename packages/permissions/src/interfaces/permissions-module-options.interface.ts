@@ -1,4 +1,4 @@
-import type { InjectionToken, Type } from "@nestjs/common";
+import type { InjectionToken, ModuleMetadata, Type } from "@nestjs/common";
 import type {
 	AnyVocabulary,
 	ContextRedactor,
@@ -30,9 +30,10 @@ import type {
  * a `MemoryPolicyStore` built in `forRoot`.
  *
  * `useClass` is instantiated through `ModuleRef.create()`, so it participates in
- * constructor DI without being registered as a provider; `useExisting` and the
- * `inject` tokens of `useFactory` are resolved non-strictly, with an asynchronous
- * fallback when a sibling provider is registered but not instantiated yet.
+ * constructor DI without being registered as a provider. With static
+ * `forRoot()`, `useExisting` and the `inject` tokens of `useFactory` must be
+ * exported by a module listed in the registration's `imports`; Nest then owns
+ * ordering, initialization failures and cycle detection.
  */
 export type ProviderDefinition<T> =
 	| T
@@ -314,6 +315,11 @@ export interface PermissionsModuleOptions {
 
 /** Extras — they shape the module graph and are never injected at runtime. */
 export interface PermissionsModuleExtras {
+	/**
+	 * Modules whose exported providers are referenced by `store` or
+	 * `principalResolver` definitions in a static `forRoot()` registration.
+	 */
+	imports?: ModuleMetadata["imports"];
 	/** Register the module globally. Defaults to `true`. */
 	isGlobal?: boolean;
 	/** Skip the automatic `APP_GUARD` registration of `PermissionsGuard`. Defaults to `false`. */

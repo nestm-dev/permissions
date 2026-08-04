@@ -1,4 +1,5 @@
 import "reflect-metadata";
+import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { describe, expect, it } from "vitest";
 import type { DynamicModule, Provider } from "@nestjs/common";
@@ -17,6 +18,9 @@ const baseOptions: PermissionsModuleOptions = {
 	policies: SEED_POLICIES,
 	warmScopes: [TEST_SCOPE],
 };
+
+@Module({})
+class DependencyModule {}
 
 function guardProviders(definition: DynamicModule): Provider[] {
 	return (definition.providers ?? []).filter(
@@ -47,6 +51,18 @@ describe("module definition", () => {
 		expect(provider).toMatchObject({ useValue: baseOptions });
 	});
 
+	it("adds static imports to the module graph without injecting them as options", () => {
+		const definition = PermissionsModule.forRoot({
+			...baseOptions,
+			imports: [DependencyModule],
+		});
+		const provider = optionsProvider(definition);
+
+		expect(definition.imports).toEqual([DependencyModule]);
+		expect(provider).toMatchObject({ useValue: baseOptions });
+		expect(provider).not.toMatchObject({ useValue: { imports: expect.anything() } });
+	});
+
 	it("registers the module globally by default", () => {
 		expect(PermissionsModule.forRoot(baseOptions).global).toBe(true);
 	});
@@ -70,10 +86,12 @@ describe("module definition", () => {
 
 	it("exposes forRootAsync with the createPermissionsOptions factory name", () => {
 		const definition = PermissionsModule.forRootAsync({
+			imports: [DependencyModule],
 			useFactory: () => baseOptions,
 		});
 
 		expect(definition.module).toBe(PermissionsModule);
+		expect(definition.imports).toEqual([DependencyModule]);
 		expect(guardProviders(definition)).toHaveLength(1);
 	});
 

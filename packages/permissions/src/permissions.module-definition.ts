@@ -15,9 +15,10 @@ export const { ConfigurableModuleClass, MODULE_OPTIONS_TOKEN, OPTIONS_TYPE, ASYN
 		.setClassMethodName("forRoot")
 		.setFactoryMethodName("createPermissionsOptions")
 		.setExtras<PermissionsModuleExtras>(
-			{ isGlobal: true, disableGlobalGuard: false },
+			{ imports: [], isGlobal: true, disableGlobalGuard: false },
 			(definition, extras) => ({
 				...definition,
+				imports: [...(definition.imports ?? []), ...(extras.imports ?? [])],
 				global: extras.isGlobal !== false,
 				providers: [
 					...(definition.providers ?? []),

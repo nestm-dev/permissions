@@ -190,9 +190,9 @@ Every route needs one of those four. A route with none is **refused with 403** �
 | Option               | Default                | Notes                                                                                                                                            |
 | -------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `vocabulary`         | —                      | Required. The output of `defineVocabulary`.                                                                                                      |
-| `store`              | seeded in-memory store | `PolicyStore` instance or `{ useClass \| useExisting \| useFactory, inject }`; exported async sibling providers are awaited before engine boot.  |
+| `store`              | seeded in-memory store | `PolicyStore` instance or `{ useClass \| useExisting \| useFactory, inject }`. See [Provider dependencies](#provider-dependencies).              |
 | `policies` `links`   | `[]`                   | Seeds for the built-in memory store. Combining them with `store` throws — this module never issues an unrequested write against a store you own. |
-| `principalResolver`  | —                      | Turns a request into a principal. Same four provider shapes. Without it every guarded route answers 500, naming the missing option.              |
+| `principalResolver`  | —                      | Turns a request into a principal. Same four provider shapes. See [Provider dependencies](#provider-dependencies).                                |
 | `contextBuilder`     | `() => ({})`           | Builds the Cedar request context from the transport request plus the resolved action, scope, and principal.                                      |
 | `scopeResolver`      | —                      | Derives the tenant scope from the request. See [Scope resolution](#scope-resolution).                                                            |
 | `denial`             | see below              | How a refusal becomes a response.                                                                                                                |
@@ -201,6 +201,7 @@ Every route needs one of those four. A route with none is **refused with 403** �
 | `warmScopes`         | `[]`                   | Scopes preloaded at `OnModuleInit`. A failure is logged, never fatal: loading is lazy per scope anyway.                                          |
 | `engine`             | core defaults          | Passed straight to `createEngine` (`validateOnLoad`, `policySetCache`, `instanceId`, `onDecision`, …).                                           |
 | `hooks`              | —                      | `onDenied` (own the response) and `onDecision` (audit sink).                                                                                     |
+| `imports`            | `[]`                   | Extra. Modules exporting singleton providers referenced by static `store` or `principalResolver` definitions.                                    |
 | `isGlobal`           | `true`                 | Extra. Registers the module globally.                                                                                                            |
 | `disableGlobalGuard` | `false`                | Extra. Skips the automatic `APP_GUARD` registration.                                                                                             |
 
@@ -213,6 +214,54 @@ Every route needs one of those four. A route with none is **refused with 403** �
 | `notFoundStatus`    | `404`         | Status the not-found path uses.                                        |
 | `onInvalidParam`    | —             | Replaces the `BadRequestException` a failed `parseAs` produces.        |
 | `onInvalidScope`    | —             | Replaces the `BadRequestException` a failed scope resolution produces. |
+
+### Provider dependencies
+
+`useExisting` and every token in `useFactory.inject` are native Nest dependencies. With static
+`forRoot()`, list the module that exports those singleton/default-scope providers in `imports` (a
+global export also works):
+
+```ts
+@Module({
+	imports: [DatabaseModule],
+	providers: [SessionPrincipalResolver],
+	exports: [SessionPrincipalResolver, DatabaseModule],
+})
+class AuthorizationDependenciesModule {}
+
+PermissionsModule.forRoot({
+	imports: [AuthorizationDependenciesModule],
+	vocabulary,
+	principalResolver: { useExisting: SessionPrincipalResolver },
+	store: {
+		useFactory: (database: Database) => new DatabasePolicyStore(database),
+		inject: [DATABASE],
+	},
+});
+```
+
+This creates ordinary required DI edges, so Nest waits for asynchronous initialization and owns
+missing-export errors and cycle detection. A provider declared only in the module that imports
+`PermissionsModule` is not visible in the opposite direction; move it to an imported module and
+export it. Missing imports/exports now fail at bootstrap instead of falling back to a container-wide
+lookup that could observe a half-initialized singleton.
+
+The nested provider definitions cannot create a static graph when the options themselves come from
+`forRootAsync()`. Inject the dependency into the outer options factory and return the ready instance:
+
+```ts
+PermissionsModule.forRootAsync({
+	imports: [AuthorizationDependenciesModule],
+	inject: [SessionPrincipalResolver],
+	useFactory: (principalResolver: SessionPrincipalResolver) => ({
+		vocabulary,
+		principalResolver,
+	}),
+});
+```
+
+Ready instances and `useClass` remain supported in both registration modes. A nested `useExisting`
+or `useFactory` with `inject` returned from `forRootAsync()` fails with migration guidance.
 
 ## API
 
