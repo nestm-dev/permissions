@@ -356,14 +356,15 @@ export class PermissionsGuard implements CanActivate {
 	 */
 	private isPublic(handler: ReflectTarget, targets: ReflectTarget[]): boolean {
 		const keys = [METADATA_KEY.public, ...(this.options.interop?.publicKeys ?? [])];
-		const declaringKey = keys.find(
-			(key) => this.reflector.getAllAndOverride<unknown>(key, targets) !== undefined,
-		);
-		if (declaringKey === undefined) {
+		if (keys.some((key) => this.reflector.get<unknown>(key, handler) !== undefined)) {
+			return true;
+		}
+		if (this.handlerDeclaresAuthorization(handler)) {
 			return false;
 		}
-		const declaredOnHandler = this.reflector.get<unknown>(declaringKey, handler) !== undefined;
-		return declaredOnHandler || !this.handlerDeclaresAuthorization(handler);
+		return keys.some(
+			(key) => this.reflector.getAllAndOverride<unknown>(key, targets) !== undefined,
+		);
 	}
 
 	/**

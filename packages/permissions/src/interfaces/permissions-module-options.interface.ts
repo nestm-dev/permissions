@@ -223,7 +223,9 @@ export interface PermissionsInteropOptions {
 	 *
 	 * Subject to the same handler-level override as this package's own
 	 * `@Public()`: a class-level public marker does not defeat a handler that
-	 * declares `@RequirePermission()`/`@RequireAuthenticated()`.
+	 * declares `@RequirePermission()`/`@RequireAuthenticated()`. Across multiple
+	 * keys, any handler-level public marker is considered before inherited
+	 * markers, regardless of key order.
 	 */
 	readonly publicKeys?: readonly (string | symbol)[];
 	/**
