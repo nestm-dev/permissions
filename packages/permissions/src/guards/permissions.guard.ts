@@ -513,7 +513,12 @@ export class PermissionsGuard implements CanActivate {
 			return (await routeBuilder(this.resourceContext(state, principal, action))) ?? {};
 		}
 		if (this.options.contextBuilder !== undefined) {
-			return (await this.options.contextBuilder(state.request)) ?? {};
+			return (
+				(await this.options.contextBuilder(
+					state.request,
+					this.resourceContext(state, principal, action),
+				)) ?? {}
+			);
 		}
 		return {};
 	}

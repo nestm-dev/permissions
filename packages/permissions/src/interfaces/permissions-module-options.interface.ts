@@ -19,7 +19,10 @@ import type {
 } from "./permissions-hooks.interface.ts";
 import type { PrincipalResolver } from "./principal-resolver.interface.ts";
 import type { RouteAuditOptions } from "./route-audit-options.interface.ts";
-import type { ScopeResolutionContext } from "./route-permission.interface.ts";
+import type {
+	RouteContextBuilderContext,
+	ScopeResolutionContext,
+} from "./route-permission.interface.ts";
 
 /**
  * A dependency this module resolves from the container, in the four shapes Nest
@@ -262,9 +265,15 @@ export interface PermissionsModuleOptions {
 	 * failure at bootstrap.
 	 */
 	readonly principalResolver?: PrincipalResolverDefinition;
-	/** Builds the Cedar request context from the transport request. */
+	/**
+	 * Builds the Cedar request context from the transport request and the fully
+	 * resolved authorization question. The second argument exposes the action,
+	 * scope and principal so one module-level builder can honor action-specific
+	 * Cedar context schemas without route-level empty-context overrides.
+	 */
 	readonly contextBuilder?: (
 		request: unknown,
+		context: RouteContextBuilderContext,
 	) => Record<string, unknown> | Promise<Record<string, unknown>>;
 	/**
 	 * Derives the policy scope of a request when the route did not.
