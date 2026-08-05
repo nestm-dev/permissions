@@ -505,6 +505,11 @@ The two lists mean genuinely different things, and the difference is the design:
 | `publicKeys`   | `@Public()`-equivalent | **Allows.** The route was already unauthenticated under the legacy guard.     |
 | `declaredKeys` | a permission decorator | **Abstains** — returns `true` without deciding, and the legacy guard answers. |
 
+When several public keys are configured, metadata level takes precedence over key order: any
+handler-level public marker wins first; otherwise a handler-level
+`@RequirePermission()`/`@RequireAuthenticated()` overrides inherited public markers; otherwise an
+inherited public marker allows the route.
+
 **Abstaining is not allowing.** A `CanActivate` returning `true` is not a grant; it is this guard
 declining to be the one that answers. On an abstained route it resolves no principal, checks
 nothing, and stashes no `RequestAuthorization` — so `@AuthorizedPrincipal()` on an unmigrated route

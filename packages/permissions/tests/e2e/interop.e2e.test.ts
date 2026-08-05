@@ -37,6 +37,8 @@ import { IDS, SEED_POLICIES, TEST_SCOPE, testVocabulary } from "../shared/test-v
 
 const LEGACY_ROLES = "legacy:roles";
 const LEGACY_PUBLIC = "legacy:public";
+const EARLIER_LEGACY_PUBLIC = "legacy:public:earlier";
+const LATER_LEGACY_PUBLIC = "legacy:public:later";
 
 /** Stand-in for the application's existing `@Roles('admin')`. */
 const LegacyRoles = (...roles: string[]): MethodDecorator & ClassDecorator =>
@@ -44,6 +46,12 @@ const LegacyRoles = (...roles: string[]): MethodDecorator & ClassDecorator =>
 
 /** Stand-in for the application's existing `@Public()`. */
 const LegacyPublic = (): MethodDecorator & ClassDecorator => SetMetadata(LEGACY_PUBLIC, true);
+
+const EarlierLegacyPublic = (): MethodDecorator & ClassDecorator =>
+	SetMetadata(EARLIER_LEGACY_PUBLIC, true);
+
+const LaterLegacyPublic = (): MethodDecorator & ClassDecorator =>
+	SetMetadata(LATER_LEGACY_PUBLIC, true);
 
 /**
  * The application's existing guard, unchanged by the migration.
@@ -129,6 +137,24 @@ class LegacyClassController {
 	}
 }
 
+/** Exercises precedence across multiple configured foreign public keys. */
+@Controller("multi-public")
+@EarlierLegacyPublic()
+class MultiPublicController {
+	@Get("explicit")
+	@LaterLegacyPublic()
+	@RequirePermission("run:dispatch", { kind: "literal", type: "Run", id: IDS.run })
+	explicit(): { ok: true } {
+		return { ok: true };
+	}
+
+	@Get("guarded")
+	@RequirePermission("run:dispatch", { kind: "literal", type: "Run", id: IDS.run })
+	guarded(): { ok: true } {
+		return { ok: true };
+	}
+}
+
 let app: INestApplication | undefined;
 
 afterEach(async () => {
@@ -146,7 +172,7 @@ async function createApp(interop: PermissionsForRootOptions["interop"]): Promise
 			...(interop === undefined ? {} : { interop }),
 		},
 		metadata: {
-			controllers: [MixedController, LegacyClassController],
+			controllers: [MixedController, LegacyClassController, MultiPublicController],
 			// Registered first, so it runs first — the shape a real cutover has.
 			providers: [{ provide: APP_GUARD, useClass: LegacyRolesGuard }],
 		},
@@ -202,6 +228,20 @@ describe(`interop cutover (${testHttpAdapter})`, () => {
 		app = await createApp(CUTOVER);
 
 		await request(app.getHttpServer()).get("/mixed/legacy-public").expect(200);
+	});
+
+	it("resolves multiple public keys by metadata level before configured key order", async () => {
+		app = await createApp({
+			publicKeys: [EARLIER_LEGACY_PUBLIC, LATER_LEGACY_PUBLIC],
+		});
+
+		// The earlier key is inherited from the class, but the later key is explicit
+		// on this handler and therefore wins even alongside a permission declaration.
+		await request(app.getHttpServer()).get("/multi-public/explicit").expect(200, { ok: true });
+
+		// With no explicit public marker, the handler declaration overrides the
+		// inherited marker and reaches principal resolution.
+		await request(app.getHttpServer()).get("/multi-public/guarded").expect(401);
 	});
 
 	it("decides a migrated route itself, and this package's declaration wins", async () => {
