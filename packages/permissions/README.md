@@ -193,7 +193,7 @@ Every route needs one of those four. A route with none is **refused with 403** �
 | `store`              | seeded in-memory store | `PolicyStore` instance or `{ useClass \| useExisting \| useFactory, inject }`; exported async sibling providers are awaited before engine boot.  |
 | `policies` `links`   | `[]`                   | Seeds for the built-in memory store. Combining them with `store` throws — this module never issues an unrequested write against a store you own. |
 | `principalResolver`  | —                      | Turns a request into a principal. Same four provider shapes. Without it every guarded route answers 500, naming the missing option.              |
-| `contextBuilder`     | `() => ({})`           | Builds the Cedar request context from the transport request.                                                                                     |
+| `contextBuilder`     | `() => ({})`           | Builds the Cedar request context from the transport request plus the resolved action, scope, and principal.                                      |
 | `scopeResolver`      | —                      | Derives the tenant scope from the request. See [Scope resolution](#scope-resolution).                                                            |
 | `denial`             | see below              | How a refusal becomes a response.                                                                                                                |
 | `interop`            | —                      | Another guard's metadata keys, for a route-by-route cutover. See [Migrating from another guard](#migrating-from-another-guard).                  |

@@ -15,6 +15,7 @@ import {
 	type FeatureEntityProvider,
 	type RequestAuthorization,
 	type ResolvedPrincipal,
+	type RouteContextBuilderContext,
 	type SeedLink,
 	type SeedPolicy,
 	type StandardSchemaV1,
@@ -264,6 +265,42 @@ describe(`PermissionsGuard (${testHttpAdapter})`, () => {
 			.get("/runs/resolved")
 			.set(USER_HEADER, IDS.member)
 			.expect(200, { ok: true });
+	});
+
+	it("passes the resolved authorization question to the module context builder", async () => {
+		let rawRequest: unknown;
+		let context: RouteContextBuilderContext | undefined;
+
+		app = await createTestApp({
+			forRoot: {
+				vocabulary: testVocabulary,
+				policies: TEMPLATE_POLICIES,
+				links: TEMPLATE_LINKS,
+				principalResolver: new HeaderPrincipalResolver(),
+				scopeResolver: () => TEST_SCOPE,
+				contextBuilder: (transportRequest, resolved) => {
+					rawRequest = transportRequest;
+					context = resolved;
+					return {};
+				},
+			},
+			metadata: {
+				imports: [RunModule],
+				controllers: [RunsController],
+			},
+		});
+
+		await request(app.getHttpServer()).get("/runs/fixed").set(USER_HEADER, IDS.member).expect(200);
+
+		expect(context).toMatchObject({
+			action: "run:read",
+			contextKind: "http",
+			params: {},
+			principal: { ref: { type: "Member", id: IDS.member } },
+			route: expect.stringContaining("RunsController.fixed") as unknown,
+			scope: TEST_SCOPE,
+		});
+		expect(context?.request).toBe(rawRequest);
 	});
 
 	it("serves a @RequireAuthenticated() route with no Cedar decision", async () => {
