@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { Controller, Get, Injectable, Module } from "@nestjs/common";
+import { Controller, Get, Inject, Injectable, Module } from "@nestjs/common";
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryPolicyStore } from "@nestm/permissions-core";
@@ -18,12 +18,14 @@ import {
 	PermissionsModule,
 	PermissionsService,
 	POLICY_STORE,
+	PRINCIPAL_RESOLVER,
 	PolicySetManager,
 	Public,
 	type AuthorizationEngine,
 	type FeatureEntityProvider,
 	type PermissionsCheckRequest,
 	type PolicyStoreDefinition,
+	type PrincipalResolver,
 } from "../../src/index.ts";
 import { createTestApp } from "../shared/test-app.ts";
 import { testHttpAdapter } from "../shared/http-adapter.ts";
@@ -69,12 +71,58 @@ class FeatureModule {}
 
 class DelayedSiblingStore extends MemoryPolicyStore {}
 
+const ASYNC_DATABASE = Symbol("ASYNC_DATABASE");
+
+interface AsyncDatabase {
+	readonly initialized: true;
+}
+
+@Module({
+	providers: [
+		{
+			provide: ASYNC_DATABASE,
+			useFactory: async (): Promise<AsyncDatabase> => {
+				await new Promise<void>((resolve) => setTimeout(resolve, 10));
+				return { initialized: true };
+			},
+		},
+	],
+	exports: [ASYNC_DATABASE],
+})
+class AsyncDatabaseModule {}
+
+@Injectable()
+class SiblingPrincipalResolver implements PrincipalResolver {
+	constructor(@Inject(ASYNC_DATABASE) readonly database: AsyncDatabase) {}
+
+	resolve(): null {
+		return null;
+	}
+}
+
+@Module({
+	imports: [AsyncDatabaseModule],
+	providers: [SiblingPrincipalResolver],
+	exports: [SiblingPrincipalResolver],
+})
+class PrincipalResolverModule {}
+
+@Injectable()
+class UnexportedPrincipalResolver implements PrincipalResolver {
+	resolve(): null {
+		return null;
+	}
+}
+
+@Module({ providers: [UnexportedPrincipalResolver] })
+class UnexportedPrincipalResolverModule {}
+
 @Module({})
 class DelayedSiblingStoreModule {
-	static register(): DynamicModule {
+	static register(global = false): DynamicModule {
 		return {
 			module: DelayedSiblingStoreModule,
-			global: true,
+			global,
 			providers: [
 				{
 					provide: DelayedSiblingStore,
@@ -248,11 +296,73 @@ describe(`PermissionsModule (${testHttpAdapter})`, () => {
 		).resolves.toMatchObject({ allowed: true });
 	});
 
-	it("awaits a delayed sibling store configured with useExisting", async () => {
+	it("accepts a ready resolver injected into the outer forRootAsync factory", async () => {
 		const { Test } = await import("@nestjs/testing");
 		const moduleRef = await Test.createTestingModule({
 			imports: [
-				DelayedSiblingStoreModule.register(),
+				PermissionsModule.forRootAsync({
+					imports: [PrincipalResolverModule],
+					inject: [SiblingPrincipalResolver],
+					useFactory: (resolver: SiblingPrincipalResolver) => ({
+						vocabulary: testVocabulary,
+						principalResolver: resolver,
+					}),
+					disableGlobalGuard: true,
+				}),
+			],
+		}).compile();
+
+		try {
+			expect(moduleRef.get(PRINCIPAL_RESOLVER)).toBe(moduleRef.get(SiblingPrincipalResolver));
+		} finally {
+			await moduleRef.close();
+		}
+	});
+
+	it("rejects nested useExisting from forRootAsync with migration guidance", async () => {
+		const { Test } = await import("@nestjs/testing");
+
+		await expect(
+			Test.createTestingModule({
+				imports: [
+					PermissionsModule.forRootAsync({
+						imports: [PrincipalResolverModule],
+						useFactory: () => ({
+							vocabulary: testVocabulary,
+							principalResolver: { useExisting: SiblingPrincipalResolver },
+						}),
+						disableGlobalGuard: true,
+					}),
+				],
+			}).compile(),
+		).rejects.toThrowError(/forRootAsync.*outer options factory/);
+	});
+
+	it("awaits an imported async store configured with useExisting", async () => {
+		const { Test } = await import("@nestjs/testing");
+		const moduleRef = await Test.createTestingModule({
+			imports: [
+				PermissionsModule.forRoot({
+					imports: [DelayedSiblingStoreModule.register()],
+					vocabulary: testVocabulary,
+					store: { useExisting: DelayedSiblingStore },
+					disableGlobalGuard: true,
+				}),
+			],
+		}).compile();
+
+		try {
+			expect(moduleRef.get(POLICY_STORE)).toBeInstanceOf(DelayedSiblingStore);
+		} finally {
+			await moduleRef.close();
+		}
+	});
+
+	it("continues to support an async provider exported by a global module", async () => {
+		const { Test } = await import("@nestjs/testing");
+		const moduleRef = await Test.createTestingModule({
+			imports: [
+				DelayedSiblingStoreModule.register(true),
 				PermissionsModule.forRoot({
 					vocabulary: testVocabulary,
 					store: { useExisting: DelayedSiblingStore },
@@ -268,7 +378,31 @@ describe(`PermissionsModule (${testHttpAdapter})`, () => {
 		}
 	});
 
-	it("awaits delayed dependencies injected into a store useFactory", async () => {
+	it("awaits an imported useExisting resolver until its dependencies are initialized", async () => {
+		const { Test } = await import("@nestjs/testing");
+		const moduleRef = await Test.createTestingModule({
+			imports: [
+				PermissionsModule.forRoot({
+					imports: [PrincipalResolverModule],
+					vocabulary: testVocabulary,
+					principalResolver: { useExisting: SiblingPrincipalResolver },
+					disableGlobalGuard: true,
+				}),
+			],
+		}).compile();
+
+		try {
+			const existing = moduleRef.get(SiblingPrincipalResolver);
+			const resolved = moduleRef.get<PrincipalResolver>(PRINCIPAL_RESOLVER);
+
+			expect(resolved).toBe(existing);
+			expect(existing.database).toEqual({ initialized: true });
+		} finally {
+			await moduleRef.close();
+		}
+	});
+
+	it("awaits imported async dependencies injected into a store useFactory", async () => {
 		const { Test } = await import("@nestjs/testing");
 		const store: PolicyStoreDefinition = {
 			useFactory: (dependency: DelayedSiblingStore) => dependency,
@@ -276,8 +410,8 @@ describe(`PermissionsModule (${testHttpAdapter})`, () => {
 		};
 		const moduleRef = await Test.createTestingModule({
 			imports: [
-				DelayedSiblingStoreModule.register(),
 				PermissionsModule.forRoot({
+					imports: [DelayedSiblingStoreModule.register()],
 					vocabulary: testVocabulary,
 					store,
 					disableGlobalGuard: true,
@@ -290,6 +424,23 @@ describe(`PermissionsModule (${testHttpAdapter})`, () => {
 		} finally {
 			await moduleRef.close();
 		}
+	});
+
+	it("fails fast when a useExisting provider is not exported by its import", async () => {
+		const { Test } = await import("@nestjs/testing");
+
+		await expect(
+			Test.createTestingModule({
+				imports: [
+					PermissionsModule.forRoot({
+						imports: [UnexportedPrincipalResolverModule],
+						vocabulary: testVocabulary,
+						principalResolver: { useExisting: UnexportedPrincipalResolver },
+						disableGlobalGuard: true,
+					}),
+				],
+			}).compile(),
+		).rejects.toThrowError(/UnexportedPrincipalResolver/);
 	});
 
 	it("discovers a forFeature entity provider and decides without explicit entities", async () => {

@@ -6,7 +6,11 @@ import { ConfigurableModuleClass } from "./permissions.module-definition.ts";
 import { RouteAuthorizationAudit } from "./audit/route-authorization.audit.ts";
 import { PermissionsGuard } from "./guards/permissions.guard.ts";
 import { assertPermissionsModuleOptions } from "./internal/assert-options.ts";
-import { createProviderDefinitionReadinessProvider } from "./internal/definition-resolver.ts";
+import {
+	POLICY_STORE_DEFINITION_DEPENDENCIES_READY,
+	PRINCIPAL_RESOLVER_DEFINITION_DEPENDENCIES_READY,
+	createProviderDefinitionReadinessProvider,
+} from "./internal/definition-resolver.ts";
 import { authorizationEngineProvider } from "./providers/engine.provider.ts";
 import { policyStoreProvider } from "./providers/policy-store.provider.ts";
 import { principalResolverProvider } from "./providers/principal-resolver.provider.ts";
@@ -83,13 +87,17 @@ export class PermissionsModule extends ConfigurableModuleClass implements OnModu
 	static override forRoot(options: PermissionsForRootOptions): DynamicModule {
 		assertPermissionsModuleOptions(options);
 		const definition = super.forRoot(options);
-		const readiness = createProviderDefinitionReadinessProvider([
+		const storeReadiness = createProviderDefinitionReadinessProvider(
+			POLICY_STORE_DEFINITION_DEPENDENCIES_READY,
 			options.store,
+		);
+		const principalResolverReadiness = createProviderDefinitionReadinessProvider(
+			PRINCIPAL_RESOLVER_DEFINITION_DEPENDENCIES_READY,
 			options.principalResolver,
-		]);
+		);
 		return {
 			...definition,
-			providers: [...(definition.providers ?? []), readiness],
+			providers: [...(definition.providers ?? []), storeReadiness, principalResolverReadiness],
 		};
 	}
 

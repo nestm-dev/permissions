@@ -15,9 +15,10 @@ import type {
 } from "@nestm/permissions-core";
 
 import {
-	PROVIDER_DEFINITION_DEPENDENCIES_READY,
+	POLICY_STORE_DEFINITION_DEPENDENCIES_READY,
 	resolveProviderDefinition,
 } from "../internal/definition-resolver.ts";
+import type { ProviderDefinitionDependencies } from "../internal/definition-resolver.ts";
 import { PERMISSIONS_MODULE_OPTIONS, POLICY_STORE } from "../permissions.tokens.ts";
 import type {
 	PermissionsModuleOptions,
@@ -94,11 +95,12 @@ export async function createSeededMemoryStore(
 export async function resolvePolicyStore(
 	options: PermissionsModuleOptions,
 	moduleRef: ModuleRef,
+	dependencies?: ProviderDefinitionDependencies,
 ): Promise<PolicyStore> {
 	if (options.store === undefined) {
 		return createSeededMemoryStore(options);
 	}
-	return resolveProviderDefinition(options.store, moduleRef, "store");
+	return resolveProviderDefinition(options.store, moduleRef, "store", dependencies);
 }
 
 /** `POLICY_STORE` — the resolved policy store for this module registration. */
@@ -107,11 +109,11 @@ export const policyStoreProvider: FactoryProvider<Promise<PolicyStore>> = {
 	inject: [
 		PERMISSIONS_MODULE_OPTIONS,
 		ModuleRef,
-		{ token: PROVIDER_DEFINITION_DEPENDENCIES_READY, optional: true },
+		{ token: POLICY_STORE_DEFINITION_DEPENDENCIES_READY, optional: true },
 	],
 	useFactory: async (
 		options: PermissionsModuleOptions,
 		moduleRef: ModuleRef,
-		_dependenciesReady?: true,
-	) => resolvePolicyStore(options, moduleRef),
+		dependencies?: ProviderDefinitionDependencies,
+	) => resolvePolicyStore(options, moduleRef, dependencies),
 };
