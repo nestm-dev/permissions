@@ -1,5 +1,22 @@
 # @nestm/permissions
 
+## 0.1.0-alpha.3
+
+### Patch Changes
+
+- b6da0eb: Pass the resolved route context as a second argument to the module-level
+  `contextBuilder`, allowing one builder to select action-specific Cedar context
+  attributes without per-route overrides.
+- 6e37cc7: Resolve public metadata by declaration level across every configured key so an explicit handler
+  marker cannot be masked by an earlier inherited marker, while handler authorization continues to
+  override inherited public declarations.
+- e8ce81d: Wire `useExisting` and `useFactory.inject` through required Nest dependency edges supplied by static
+  `forRoot({ imports: [...] })` registrations. This prevents a provider with asynchronous constructor
+  dependencies from being captured as its prototype placeholder, while preserving Nest's native
+  initialization errors and cycle detection. Nested injected definitions from `forRootAsync()` now
+  fail with guidance to inject the ready instance into the outer options factory.
+  - @nestm/permissions-core@0.1.0-alpha.3
+
 ## 0.1.0-alpha.2
 
 ### Patch Changes
