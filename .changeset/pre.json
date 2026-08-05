@@ -10,7 +10,10 @@
   },
   "changesets": [
     "calm-drizzle-authorization",
+    "context-aware-builder",
     "initial-alpha-release",
+    "public-metadata-precedence",
+    "ready-existing-providers",
     "strong-permission-freshness"
   ]
 }
