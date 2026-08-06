@@ -6,7 +6,7 @@
 
 | Finding | Evidence | Consequence |
 |---|---|---|
-| `nodejs/package.json` contains `"type": "commonjs"` (nested override of the root `"type":"module"`); the file uses `exports.name = name` | extracted tarball | **Named ESM imports work natively.** `import { isAuthorizedPartial } from '@cedar-policy/cedar-wasm/nodejs'` runs unmodified on Node 22/24 and typechecks under `moduleResolution: nodenext` with tsc 6.0.2 (verified, both `verbatimModuleSyntax` values). **No community fork needed.** |
+| `nodejs/package.json` contains `"type": "commonjs"` (nested override of the root `"type":"module"`); the file uses `exports.name = name` | extracted tarball | **Named ESM imports work natively.** `import { isAuthorizedPartial } from '@cedar-policy/cedar-wasm/nodejs'` runs unmodified on Node 22/24 and typechecks under `moduleResolution: nodenext` with tsc 6.0.2 (verified with both `verbatimModuleSyntax` values); the repository also typechecks with tsc 7.0.2. **No community fork needed.** |
 | `nodejs/cedar_wasm.js` ends with `require('fs').readFileSync(`${__dirname}/cedar_wasm_bg.wasm`)` + `new WebAssembly.Module` | source | Load is **synchronous**, no `await init()`. But it uses `__dirname`/`require` ⇒ **must be marked external in tsdown**, never bundled. |
 | `statefulIsAuthorized` = **0.136 ms/op** vs `isAuthorized` = **1.98 ms/op** (40 policies) | benchmark | Preparse is a **14.6× win**. Mandatory. |
 | `isAuthorizedPartial` = **2.28 ms/op**, and `PartialAuthorizationCall` has **no `preparsedPolicySetId` field** | `.d.ts` + benchmark | Query plans **cannot** use the preparse cache. A JS-side plan cache is not an optimisation, it is a requirement (~17× a stateful check). |

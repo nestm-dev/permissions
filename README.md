@@ -54,7 +54,7 @@ pnpm run build   # tsdown, per package
 pnpm run test    # script specs + every package suite
 ```
 
-Node >= 22.12 and pnpm 11.18 (pinned via `packageManager`) are required. See
+Node >= 22.12 and pnpm 11.20 (pinned via `packageManager`) are required. See
 [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
