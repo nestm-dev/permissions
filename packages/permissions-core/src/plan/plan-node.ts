@@ -278,6 +278,9 @@ export function simplifyPlanNode(node: PlanNode, options: SimplifyOptions = {}):
 			}
 			return node.entityType === options.resourceType ? PLAN_TRUE : PLAN_FALSE;
 		}
+		case "in": {
+			return node.values.length === 0 ? PLAN_FALSE : node;
+		}
 		default: {
 			return node;
 		}
@@ -426,7 +429,7 @@ export function formatPlanNode(node: PlanNode): string {
 			return `${formatAttrPath(node.attr)} ${CMP_SYMBOLS[node.cmp]} ${formatPlanValue(node.value)}`;
 		}
 		case "in": {
-			return `${formatAttrPath(node.attr)} in [${node.values
+			return `${node.attr === null ? "resource" : formatAttrPath(node.attr)} in [${node.values
 				.map((value) => formatPlanValue(value))
 				.join(", ")}]`;
 		}

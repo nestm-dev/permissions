@@ -246,6 +246,16 @@ function assertResolvable(node: PlanNode, options: EvaluatePlanOptions): void {
 			}
 			return;
 		}
+		case "in": {
+			if (node.attr === null && node.values.length > 0) {
+				if (options.rowId === undefined || options.resourceType === undefined) {
+					throw new PlanEvaluationError(
+						"A row-identity membership plan requires both options.rowId and options.resourceType.",
+					);
+				}
+			}
+			return;
+		}
 		case "isType": {
 			if (options.resourceType === undefined) {
 				throw new PlanEvaluationError(
@@ -317,6 +327,19 @@ function evaluate(node: PlanNode, row: PlanRow, options: EvaluatePlanOptions): T
 		}
 
 		case "in": {
+			if (node.attr === null) {
+				return node.values.some((candidate) => {
+					if (candidate.kind !== "entity") {
+						throw new PlanEvaluationError(
+							"A row-identity membership plan may contain only entity references.",
+						);
+					}
+					return (
+						candidate.value.type === options.resourceType && candidate.value.id === options.rowId
+					);
+				});
+			}
+
 			// `["a","b"].contains(resource.status)` — a scalar column against a set of
 			// constants. Cedar sets are unordered, so this is plain membership.
 			const value = attrValue(node.attr, row);

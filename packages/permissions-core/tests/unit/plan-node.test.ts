@@ -281,6 +281,11 @@ describe("simplifyPlanNode", () => {
 		expect(simplifyPlanNode(isRun)).toEqual(isRun);
 	});
 
+	it("folds empty membership to false, including row identity membership", () => {
+		expect(simplifyPlanNode({ op: "in", attr: STATUS, values: [] })).toEqual(PLAN_FALSE);
+		expect(simplifyPlanNode({ op: "in", attr: null, values: [] })).toEqual(PLAN_FALSE);
+	});
+
 	it("simplifies bottom-up, so an inner fold collapses the whole tree", () => {
 		const tree = planAnd([planOr([{ op: "isType", entityType: "Project" }, PLAN_FALSE]), eq("a")]);
 

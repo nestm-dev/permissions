@@ -305,6 +305,25 @@ describe("set-valued nodes", () => {
 		expect(evaluatePlanNode(node, { status: "published" })).toBe(false);
 	});
 
+	it("evaluates row identity membership with exact entity type and id", () => {
+		const node: PlanNode = {
+			op: "in",
+			attr: null,
+			values: [
+				{ kind: "entity", value: { type: "Doc", id: "d1" } },
+				{ kind: "entity", value: { type: "Folder", id: "d2" } },
+			],
+		};
+
+		expect(evaluatePlanNode(node, {}, { resourceType: "Doc", rowId: "d1" })).toBe(true);
+		expect(evaluatePlanNode(node, {}, { resourceType: "Doc", rowId: "d2" })).toBe(false);
+		expect(() => evaluatePlanNode(node, {}, { resourceType: "Doc" })).toThrow(PlanEvaluationError);
+	});
+
+	it("evaluates empty row identity membership as false without row metadata", () => {
+		expect(evaluatePlanNode({ op: "in", attr: null, values: [] }, {})).toBe(false);
+	});
+
 	it("evaluates `isEmpty`", () => {
 		const node: PlanNode = { op: "isEmpty", attr: attr("labels") };
 

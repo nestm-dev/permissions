@@ -242,6 +242,21 @@ const GOLDENS: readonly Golden[] = [
 	},
 	{
 		op: "in",
+		name: "row identity uses the mapped id and drops foreign entity types",
+		node: {
+			op: "in",
+			attr: null,
+			values: [
+				{ kind: "entity", value: { type: "Doc", id: "d1" } },
+				{ kind: "entity", value: { type: "Folder", id: "f1" } },
+				{ kind: "entity", value: { type: "Doc", id: "d2" } },
+			],
+		},
+		sql: '"docs"."id" in ($1, $2)',
+		params: ["d1", "d2"],
+	},
+	{
+		op: "in",
 		name: "empty list ⇒ false",
 		node: { op: "in", attr: attr("status"), values: [] },
 		sql: "false",

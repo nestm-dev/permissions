@@ -113,8 +113,11 @@ export type PlanNode =
 			readonly attr: AttrPath;
 			readonly value: PlanValue;
 	  }
-	/** `attr IN (…values)` — Cedar `[…].contains(attr)`. */
-	| { readonly op: "in"; readonly attr: AttrPath; readonly values: readonly PlanValue[] }
+	/**
+	 * `attr IN (…values)` — Cedar `[…].contains(attr)`. A null attribute means
+	 * the row identity itself: `[Workspace::"a"].contains(resource)`.
+	 */
+	| { readonly op: "in"; readonly attr: AttrPath | null; readonly values: readonly PlanValue[] }
 	/** The set-valued `attr` contains `value` — Cedar `attr.contains(v)`. */
 	| { readonly op: "contains"; readonly attr: AttrPath; readonly value: PlanValue }
 	/** `attr LIKE pattern`, pattern carried as tokens. */
@@ -175,7 +178,7 @@ export type PlanApproximationReason =
 	| "unsupported-value"
 	/** An `in` whose right side is not a concrete entity literal. */
 	| "non-literal-hierarchy"
-	/** `resource == SomeType::"id"` — row identity, which no `PlanNode` expresses. */
+	/** A row-identity expression outside the supported set-membership form. */
 	| "entity-identity"
 	/** `unknown("principal")` met while planning over resources, or vice versa. */
 	| "wrong-unknown-root"
