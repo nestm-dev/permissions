@@ -73,7 +73,7 @@ jobs:
       - run: node scripts/assert-core-framework-free.mjs
       - name: Create release PR or publish to npm
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
           # With pending changesets: opens/updates the "Version Packages" PR.
           # When that PR is merged (no pending changesets left): the hardened
