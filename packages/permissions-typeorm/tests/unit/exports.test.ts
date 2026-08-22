@@ -46,6 +46,7 @@ const BARREL_EXPORTS: readonly string[] = [
 	"permissionsPostgresPolicyStatements",
 	// store
 	"TypeOrmPolicyStore",
+	"defaultTypeOrmPolicyStoreExecutor",
 	"DEFAULT_POLL_INTERVAL_MS",
 	"MAX_POLL_BACKOFF_MS",
 	"PolicyChangeWatcher",
