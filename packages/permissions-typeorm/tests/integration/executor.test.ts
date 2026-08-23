@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
 	TypeOrmPolicyStore,
+	TypeOrmPolicyStoreIsolationLevel,
 	type TypeOrmPolicyStoreExecution,
 	type TypeOrmPolicyStoreExecutor,
 } from "../../src/store/typeorm-policy-store.ts";
@@ -16,10 +17,10 @@ const FIXTURE_TIME = new Date("2026-08-21T00:00:00.000Z");
 const TYPEORM_ISOLATION: Readonly<
 	Record<TypeOrmPolicyStoreExecution["isolationLevel"], IsolationLevel>
 > = {
-	"read uncommitted": "READ UNCOMMITTED",
-	"read committed": "READ COMMITTED",
-	"repeatable read": "REPEATABLE READ",
-	serializable: "SERIALIZABLE",
+	[TypeOrmPolicyStoreIsolationLevel.READ_UNCOMMITTED]: "READ UNCOMMITTED",
+	[TypeOrmPolicyStoreIsolationLevel.READ_COMMITTED]: "READ COMMITTED",
+	[TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ]: "REPEATABLE READ",
+	[TypeOrmPolicyStoreIsolationLevel.SERIALIZABLE]: "SERIALIZABLE",
 };
 
 function policy(id: string, scope: string): PolicyRecord {

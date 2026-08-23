@@ -46,6 +46,7 @@ const BARREL_EXPORTS: readonly string[] = [
 	"permissionsPostgresPolicyStatements",
 	// store
 	"TypeOrmPolicyStore",
+	"TypeOrmPolicyStoreIsolationLevel",
 	"defaultTypeOrmPolicyStoreExecutor",
 	"DEFAULT_POLL_INTERVAL_MS",
 	"MAX_POLL_BACKOFF_MS",
@@ -76,6 +77,15 @@ describe("barrel exports", () => {
 
 	it("exports PACKAGE_NAME", () => {
 		expect(barrel.PACKAGE_NAME).toBe("@nestm/permissions-typeorm");
+	});
+
+	it("exports the policy-store isolation levels", () => {
+		expect(barrel.TypeOrmPolicyStoreIsolationLevel).toEqual({
+			READ_UNCOMMITTED: "read uncommitted",
+			READ_COMMITTED: "read committed",
+			REPEATABLE_READ: "repeatable read",
+			SERIALIZABLE: "serializable",
+		});
 	});
 
 	it("does not instantiate the Cedar WASM", () => {

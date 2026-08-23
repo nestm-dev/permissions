@@ -66,11 +66,11 @@ export {
 
 export {
 	TypeOrmPolicyStore,
+	TypeOrmPolicyStoreIsolationLevel,
 	type TypeOrmPolicyStoreAccess,
 	type TypeOrmPolicyStoreCommitOwnership,
 	type TypeOrmPolicyStoreExecution,
 	type TypeOrmPolicyStoreExecutor,
-	type TypeOrmPolicyStoreIsolationLevel,
 	type TypeOrmPolicyStoreOperation,
 	type TypeOrmPolicyStoreOptions,
 } from "./store/typeorm-policy-store.ts";

@@ -9,8 +9,12 @@ export type TypeOrmPolicyStoreOperation =
 export type TypeOrmPolicyStoreAccess = "read-only" | "read-write";
 
 /** PostgreSQL snapshot level the executor must provide for an operation. */
-export type TypeOrmPolicyStoreIsolationLevel =
-	"read uncommitted" | "read committed" | "repeatable read" | "serializable";
+export enum TypeOrmPolicyStoreIsolationLevel {
+	READ_UNCOMMITTED = "read uncommitted",
+	READ_COMMITTED = "read committed",
+	REPEATABLE_READ = "repeatable read",
+	SERIALIZABLE = "serializable",
+}
 
 /** Whether `run()` must own the commit that makes the operation durable. */
 export type TypeOrmPolicyStoreCommitOwnership = "required" | "not-required";
@@ -63,10 +67,10 @@ const TYPEORM_ISOLATION: Readonly<
 		"READ UNCOMMITTED" | "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE"
 	>
 > = {
-	"read uncommitted": "READ UNCOMMITTED",
-	"read committed": "READ COMMITTED",
-	"repeatable read": "REPEATABLE READ",
-	serializable: "SERIALIZABLE",
+	[TypeOrmPolicyStoreIsolationLevel.READ_UNCOMMITTED]: "READ UNCOMMITTED",
+	[TypeOrmPolicyStoreIsolationLevel.READ_COMMITTED]: "READ COMMITTED",
+	[TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ]: "REPEATABLE READ",
+	[TypeOrmPolicyStoreIsolationLevel.SERIALIZABLE]: "SERIALIZABLE",
 };
 
 /**

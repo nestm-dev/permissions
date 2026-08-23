@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	defaultTypeOrmPolicyStoreExecutor,
+	TypeOrmPolicyStoreIsolationLevel,
 	type TypeOrmPolicyStoreExecution,
 } from "../../src/store/executor.ts";
 
@@ -12,7 +13,7 @@ function execution(
 	return {
 		operation: "load",
 		access: "read-only",
-		isolationLevel: "repeatable read",
+		isolationLevel: TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ,
 		commitOwnership: "not-required",
 		scopes: ["tenant-a"],
 		...overrides,
@@ -82,7 +83,7 @@ describe("defaultTypeOrmPolicyStoreExecutor", () => {
 				execution({
 					operation: "save",
 					access: "read-write",
-					isolationLevel: "read committed",
+					isolationLevel: TypeOrmPolicyStoreIsolationLevel.READ_COMMITTED,
 					commitOwnership: "required",
 				}),
 				() => {

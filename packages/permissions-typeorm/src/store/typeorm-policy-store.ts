@@ -59,23 +59,23 @@ import {
 } from "../entities/rows.ts";
 import {
 	defaultTypeOrmPolicyStoreExecutor,
+	TypeOrmPolicyStoreIsolationLevel,
 	type TypeOrmPolicyStoreAccess,
 	type TypeOrmPolicyStoreCommitOwnership,
 	type TypeOrmPolicyStoreExecution,
 	type TypeOrmPolicyStoreExecutor,
-	type TypeOrmPolicyStoreIsolationLevel,
 	type TypeOrmPolicyStoreOperation,
 } from "./executor.ts";
 import { DEFAULT_POLL_INTERVAL_MS, type PolicyStoreDriverOptions } from "./options.ts";
 import { PolicyChangeWatcher, PolicyNotifyListener, type WatcherTimers } from "./watcher.ts";
 
-export type {
-	TypeOrmPolicyStoreAccess,
-	TypeOrmPolicyStoreCommitOwnership,
-	TypeOrmPolicyStoreExecution,
-	TypeOrmPolicyStoreExecutor,
+export {
 	TypeOrmPolicyStoreIsolationLevel,
-	TypeOrmPolicyStoreOperation,
+	type TypeOrmPolicyStoreAccess,
+	type TypeOrmPolicyStoreCommitOwnership,
+	type TypeOrmPolicyStoreExecution,
+	type TypeOrmPolicyStoreExecutor,
+	type TypeOrmPolicyStoreOperation,
 } from "./executor.ts";
 
 /** Options the store accepts, plus the seams its own tests need. */
@@ -204,7 +204,7 @@ export class TypeOrmPolicyStore implements PolicyStore {
 	async load(scope: PolicyScopeId): Promise<PolicyBundle> {
 		const scopes = this.#effectiveScopes(scope);
 		return this.#executor.run(
-			execution("load", "read-only", scopes, "repeatable read"),
+			execution("load", "read-only", scopes, TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ),
 			(manager) => this.#loadSnapshot(manager, scope, scopes),
 		);
 	}
@@ -814,7 +814,7 @@ function execution(
 	operation: TypeOrmPolicyStoreOperation,
 	access: TypeOrmPolicyStoreAccess,
 	scopes: readonly PolicyScopeId[],
-	isolationLevel: TypeOrmPolicyStoreIsolationLevel = "read committed",
+	isolationLevel: TypeOrmPolicyStoreIsolationLevel = TypeOrmPolicyStoreIsolationLevel.READ_COMMITTED,
 ): TypeOrmPolicyStoreExecution {
 	const commitOwnership: TypeOrmPolicyStoreCommitOwnership =
 		access === "read-write" ? "required" : "not-required";
