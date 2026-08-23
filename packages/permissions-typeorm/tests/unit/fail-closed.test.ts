@@ -174,6 +174,32 @@ describe("fail-closed contract", () => {
 		});
 	});
 
+	it("compiles row-identity membership through the mapped primary key", () => {
+		const compiled = planToSql(
+			conditional({
+				op: "in",
+				attr: null,
+				values: [
+					{ kind: "entity", value: { type: "Doc", id: "d1" } },
+					{ kind: "entity", value: { type: "Folder", id: "f1" } },
+					{ kind: "entity", value: { type: "Doc", id: "d2" } },
+				],
+			}),
+			mapping,
+		);
+
+		expect(compiled.text).toMatch(/^"id" in \(:nestmp_\d+, :nestmp_\d+\)$/u);
+		expect(Object.values(compiled.parameters)).toEqual(["d1", "d2"]);
+	});
+
+	it("refuses a scalar in row-identity membership", () => {
+		refuses("entity-column-mismatch", {
+			op: "in",
+			attr: null,
+			values: [{ kind: "string", value: "d1" }],
+		});
+	});
+
 	it("refuses inHierarchy rooted at a non-entity attribute", () => {
 		refuses("entity-column-mismatch", {
 			op: "inHierarchy",

@@ -375,7 +375,8 @@ const SQL_OPERATORS: Readonly<Record<"eq" | "ne" | "lt" | "lte" | "gt" | "gte", 
 
 function compileCmp(node: Extract<PlanNode, { op: "cmp" }>, context: CompileContext): string {
 	const mapping = context.mapping;
-	const attribute = resolve(node.attr, context);
+	const attr = node.attr;
+	const attribute = resolve(attr, context);
 	const ordering = node.cmp !== "eq" && node.cmp !== "ne";
 
 	if (ordering) {
@@ -477,7 +478,6 @@ function compileSetCmp(
 
 function compileIn(node: Extract<PlanNode, { op: "in" }>, context: CompileContext): string {
 	const mapping = context.mapping;
-	const attribute = resolve(node.attr, context);
 
 	// Empty ⇒ `1 = 0`. `col IN ()` is a syntax error in Postgres, and TypeORM's
 	// `:...name` spread produces exactly that for an empty array, so the list is
@@ -486,15 +486,39 @@ function compileIn(node: Extract<PlanNode, { op: "in" }>, context: CompileContex
 		return sqlFalse();
 	}
 
+	if (node.attr === null) {
+		const ids: string[] = [];
+		for (const value of node.values) {
+			if (value.kind !== "entity") {
+				throw new PlanCompilationError(
+					"entity-column-mismatch",
+					`The plan tests the ${mapping.resourceType} row identity against a ${value.kind} ` +
+						"constant; row-identity membership accepts only entity references.",
+					{ resourceType: mapping.resourceType },
+				);
+			}
+			if (value.value.type === mapping.resourceType) {
+				ids.push(bindEntityId(context.parameters, value.value.id));
+			}
+		}
+		if (ids.length === 0) {
+			return sqlFalse();
+		}
+		return `${columnRef(context, mapping.id)} in (${ids.join(", ")})`;
+	}
+
+	const attr = node.attr;
+	const attribute = resolve(attr, context);
+
 	if (attribute.kind === "entity") {
 		const ids: string[] = [];
 		for (const value of node.values) {
 			if (value.kind !== "entity") {
 				throw new PlanCompilationError(
 					"entity-column-mismatch",
-					`"${mapping.resourceType}.${pathOf(node.attr)}" is mapped as an entity column, but ` +
+					`"${mapping.resourceType}.${pathOf(attr)}" is mapped as an entity column, but ` +
 						`the plan tests it against a ${value.kind} constant.`,
-					{ resourceType: mapping.resourceType, attribute: pathOf(node.attr) },
+					{ resourceType: mapping.resourceType, attribute: pathOf(attr) },
 				);
 			}
 			// A constant of a different type can never equal an id in this column, so
@@ -509,15 +533,15 @@ function compileIn(node: Extract<PlanNode, { op: "in" }>, context: CompileContex
 		return `${columnRef(context, attribute.column)} in (${ids.join(", ")})`;
 	}
 
-	const kind = scalarKindOf(attribute, node.attr, context);
+	const kind = scalarKindOf(attribute, attr, context);
 	const binds = node.values.map((value) =>
 		bindScalar(context.parameters, value, kind, {
 			resourceType: mapping.resourceType,
-			attribute: pathOf(node.attr),
+			attribute: pathOf(attr),
 		}),
 	);
 
-	return `${valueExpression(attribute, context, node.attr)} in (${binds.join(", ")})`;
+	return `${valueExpression(attribute, context, attr)} in (${binds.join(", ")})`;
 }
 
 function compileContains(

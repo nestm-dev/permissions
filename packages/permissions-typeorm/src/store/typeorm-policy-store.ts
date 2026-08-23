@@ -57,11 +57,39 @@ import {
 	type PolicyRow,
 	type ScopeVersionRow,
 } from "../entities/rows.ts";
+import {
+	defaultTypeOrmPolicyStoreExecutor,
+	TypeOrmPolicyStoreIsolationLevel,
+	type TypeOrmPolicyStoreAccess,
+	type TypeOrmPolicyStoreCommitOwnership,
+	type TypeOrmPolicyStoreExecution,
+	type TypeOrmPolicyStoreExecutor,
+	type TypeOrmPolicyStoreOperation,
+} from "./executor.ts";
 import { DEFAULT_POLL_INTERVAL_MS, type PolicyStoreDriverOptions } from "./options.ts";
 import { PolicyChangeWatcher, PolicyNotifyListener, type WatcherTimers } from "./watcher.ts";
 
+export {
+	TypeOrmPolicyStoreIsolationLevel,
+	type TypeOrmPolicyStoreAccess,
+	type TypeOrmPolicyStoreCommitOwnership,
+	type TypeOrmPolicyStoreExecution,
+	type TypeOrmPolicyStoreExecutor,
+	type TypeOrmPolicyStoreOperation,
+} from "./executor.ts";
+
 /** Options the store accepts, plus the seams its own tests need. */
 export interface TypeOrmPolicyStoreOptions extends PolicyStoreDriverOptions {
+	/**
+	 * Request-aware transaction executor for foreground reads and writes.
+	 *
+	 * Omit it for a `QueryRunner` transaction over the constructor's root
+	 * `DataSource`. Supply an executor under transaction-local RLS so every
+	 * foreground operation derives and pins the request tenant before the store
+	 * issues SQL. Background polling still uses the constructor's `DataSource`
+	 * because it has no request context.
+	 */
+	readonly executor?: TypeOrmPolicyStoreExecutor;
 	/** Timer seam for the poller. Tests drive ticks with it; production never sets it. */
 	readonly timers?: WatcherTimers;
 }
@@ -115,6 +143,7 @@ interface Resolved {
  */
 export class TypeOrmPolicyStore implements PolicyStore {
 	readonly #dataSource: DataSource;
+	readonly #executor: TypeOrmPolicyStoreExecutor;
 	readonly #entities: PermissionsEntities;
 	readonly #scopeColumn: ScopeColumnOptions<unknown>;
 	readonly #options: TypeOrmPolicyStoreOptions;
@@ -128,6 +157,7 @@ export class TypeOrmPolicyStore implements PolicyStore {
 
 	constructor(dataSource: DataSource, options: TypeOrmPolicyStoreOptions = {}) {
 		this.#dataSource = dataSource;
+		this.#executor = options.executor ?? defaultTypeOrmPolicyStoreExecutor(dataSource);
 		this.#options = options;
 		this.#entities =
 			options.entities ??
@@ -164,11 +194,27 @@ export class TypeOrmPolicyStore implements PolicyStore {
 	// Reads
 	// -----------------------------------------------------------------------
 
-	/** {@inheritDoc PolicyStore.load} */
+	/**
+	 * {@inheritDoc PolicyStore.load}
+	 *
+	 * The three reads share one read-only, repeatable-read transaction. Without the
+	 * snapshot, a policy write committed between the policy/link queries and the
+	 * version query could cache a mixed bundle under the new version indefinitely.
+	 */
 	async load(scope: PolicyScopeId): Promise<PolicyBundle> {
 		const scopes = this.#effectiveScopes(scope);
+		return this.#executor.run(
+			execution("load", "read-only", scopes, TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ),
+			(manager) => this.#loadSnapshot(manager, scope, scopes),
+		);
+	}
+
+	async #loadSnapshot(
+		manager: EntityManager,
+		scope: PolicyScopeId,
+		scopes: readonly PolicyScopeId[],
+	): Promise<PolicyBundle> {
 		const values = scopes.map((candidate) => this.#toColumn(candidate));
-		const manager = this.#dataSource.manager;
 
 		// **Sequential, not `Promise.all`.** Three concurrent reads through one
 		// `EntityManager` is wrong in two ways that only show up in production:
@@ -209,7 +255,10 @@ export class TypeOrmPolicyStore implements PolicyStore {
 
 	/** {@inheritDoc PolicyStore.currentVersion} */
 	async currentVersion(scope: PolicyScopeId): Promise<string> {
-		return this.#readVersions(this.#dataSource.manager, scope);
+		return this.#executor.run(
+			execution("currentVersion", "read-only", this.#effectiveScopes(scope)),
+			(manager) => this.#readVersions(manager, scope),
+		);
 	}
 
 	// -----------------------------------------------------------------------
@@ -231,37 +280,40 @@ export class TypeOrmPolicyStore implements PolicyStore {
 
 		const resolved = this.#resolve();
 
-		await this.#dataSource.transaction(async (manager) => {
-			await manager
-				.createQueryBuilder()
-				.insert()
-				.into(this.#entities.policy)
-				// `as never`: the scope column's type is the consumer's (`string`, a uuid,
-				// a branded id), and `QueryDeepPartialEntity` will not take an `unknown`.
-				// The value came out of their own `fromScope`, which is the only thing
-				// that knows what it should be.
-				.values(
-					policies.map((record) => ({
-						scope: this.#toColumn(record.scope),
-						...policyRowValues(record),
-					})) as never,
-				)
-				.orUpdate(
-					[
-						"kind",
-						"cedar_json",
-						"cedar_text",
-						"description",
-						"annotations",
-						"enabled",
-						"updated_at",
-					],
-					[resolved.scopeColumnNames.policy, "policy_id"],
-				)
-				.execute();
+		await this.#executor.run(
+			execution("save", "read-write", [...touched].toSorted()),
+			async (manager) => {
+				await manager
+					.createQueryBuilder()
+					.insert()
+					.into(this.#entities.policy)
+					// `as never`: the scope column's type is the consumer's (`string`, a uuid,
+					// a branded id), and `QueryDeepPartialEntity` will not take an `unknown`.
+					// The value came out of their own `fromScope`, which is the only thing
+					// that knows what it should be.
+					.values(
+						policies.map((record) => ({
+							scope: this.#toColumn(record.scope),
+							...policyRowValues(record),
+						})) as never,
+					)
+					.orUpdate(
+						[
+							"kind",
+							"cedar_json",
+							"cedar_text",
+							"description",
+							"annotations",
+							"enabled",
+							"updated_at",
+						],
+						[resolved.scopeColumnNames.policy, "policy_id"],
+					)
+					.execute();
 
-			await this.#bump(manager, touched);
-		});
+				await this.#bump(manager, touched);
+			},
+		);
 
 		this.#commit(touched, "save");
 	}
@@ -275,21 +327,24 @@ export class TypeOrmPolicyStore implements PolicyStore {
 
 		const scopeValue = this.#toColumn(scope);
 
-		const removed = await this.#dataSource.transaction(async (manager) => {
-			const result = await manager
-				.createQueryBuilder()
-				.delete()
-				.from(this.#entities.policy)
-				.where("scope = :nestm_scope", { nestm_scope: scopeValue })
-				.andWhere("policyId in (:...nestm_ids)", { nestm_ids: [...ids] })
-				.execute();
+		const removed = await this.#executor.run(
+			execution("delete", "read-write", [scope]),
+			async (manager) => {
+				const result = await manager
+					.createQueryBuilder()
+					.delete()
+					.from(this.#entities.policy)
+					.where("scope = :nestm_scope", { nestm_scope: scopeValue })
+					.andWhere("policyId in (:...nestm_ids)", { nestm_ids: [...ids] })
+					.execute();
 
-			const count = result.affected ?? 0;
-			if (count > 0) {
-				await this.#bump(manager, new Set([scope]));
-			}
-			return count > 0;
-		});
+				const count = result.affected ?? 0;
+				if (count > 0) {
+					await this.#bump(manager, new Set([scope]));
+				}
+				return count > 0;
+			},
+		);
 
 		this.#commit(removed ? new Set([scope]) : new Set(), "delete");
 	}
@@ -302,27 +357,30 @@ export class TypeOrmPolicyStore implements PolicyStore {
 		const resolved = this.#resolve();
 		const values = { scope: this.#toColumn(link.scope), ...linkRowValues(link) };
 
-		await this.#dataSource.transaction(async (manager) => {
-			await manager
-				.createQueryBuilder()
-				.insert()
-				.into(this.#entities.link)
-				.values([values] as never)
-				.orUpdate(
-					[
-						"template_id",
-						"principal_type",
-						"principal_id",
-						"resource_type",
-						"resource_id",
-						"updated_at",
-					],
-					[resolved.scopeColumnNames.link, "link_id"],
-				)
-				.execute();
+		await this.#executor.run(
+			execution("linkTemplate", "read-write", [link.scope]),
+			async (manager) => {
+				await manager
+					.createQueryBuilder()
+					.insert()
+					.into(this.#entities.link)
+					.values([values] as never)
+					.orUpdate(
+						[
+							"template_id",
+							"principal_type",
+							"principal_id",
+							"resource_type",
+							"resource_id",
+							"updated_at",
+						],
+						[resolved.scopeColumnNames.link, "link_id"],
+					)
+					.execute();
 
-			await this.#bump(manager, new Set([link.scope]));
-		});
+				await this.#bump(manager, new Set([link.scope]));
+			},
+		);
 
 		this.#commit(new Set([link.scope]), "link");
 	}
@@ -333,21 +391,24 @@ export class TypeOrmPolicyStore implements PolicyStore {
 
 		const scopeValue = this.#toColumn(scope);
 
-		const removed = await this.#dataSource.transaction(async (manager) => {
-			const result = await manager
-				.createQueryBuilder()
-				.delete()
-				.from(this.#entities.link)
-				.where("scope = :nestm_scope", { nestm_scope: scopeValue })
-				.andWhere("linkId = :nestm_link_id", { nestm_link_id: linkId })
-				.execute();
+		const removed = await this.#executor.run(
+			execution("unlinkTemplate", "read-write", [scope]),
+			async (manager) => {
+				const result = await manager
+					.createQueryBuilder()
+					.delete()
+					.from(this.#entities.link)
+					.where("scope = :nestm_scope", { nestm_scope: scopeValue })
+					.andWhere("linkId = :nestm_link_id", { nestm_link_id: linkId })
+					.execute();
 
-			const count = result.affected ?? 0;
-			if (count > 0) {
-				await this.#bump(manager, new Set([scope]));
-			}
-			return count > 0;
-		});
+				const count = result.affected ?? 0;
+				if (count > 0) {
+					await this.#bump(manager, new Set([scope]));
+				}
+				return count > 0;
+			},
+		);
 
 		this.#commit(removed ? new Set([scope]) : new Set(), "unlink");
 	}
@@ -746,4 +807,22 @@ export class TypeOrmPolicyStore implements PolicyStore {
 		this.#resolved = resolved;
 		return resolved;
 	}
+}
+
+/** Builds an immutable executor context so its exact scope set cannot be widened in-place. */
+function execution(
+	operation: TypeOrmPolicyStoreOperation,
+	access: TypeOrmPolicyStoreAccess,
+	scopes: readonly PolicyScopeId[],
+	isolationLevel: TypeOrmPolicyStoreIsolationLevel = TypeOrmPolicyStoreIsolationLevel.READ_COMMITTED,
+): TypeOrmPolicyStoreExecution {
+	const commitOwnership: TypeOrmPolicyStoreCommitOwnership =
+		access === "read-write" ? "required" : "not-required";
+	return Object.freeze({
+		operation,
+		access,
+		isolationLevel,
+		commitOwnership,
+		scopes: Object.freeze([...scopes]),
+	});
 }

@@ -66,8 +66,16 @@ export {
 
 export {
 	TypeOrmPolicyStore,
+	TypeOrmPolicyStoreIsolationLevel,
+	type TypeOrmPolicyStoreAccess,
+	type TypeOrmPolicyStoreCommitOwnership,
+	type TypeOrmPolicyStoreExecution,
+	type TypeOrmPolicyStoreExecutor,
+	type TypeOrmPolicyStoreOperation,
 	type TypeOrmPolicyStoreOptions,
 } from "./store/typeorm-policy-store.ts";
+
+export { defaultTypeOrmPolicyStoreExecutor } from "./store/executor.ts";
 
 export {
 	DEFAULT_POLL_INTERVAL_MS,

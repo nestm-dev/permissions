@@ -759,9 +759,23 @@ function translateContains(
 	const left = classifyOperand(leftExpr, target);
 	const right = classifyOperand(rightExpr, target);
 
-	// `["a","b"].contains(resource.status)` — a membership test, i.e. `IN`.
-	if (left.kind === "constant" && left.value.kind === "set" && right.kind === "attr") {
-		return ok({ op: "in", attr: right.attr, values: left.value.value });
+	// `["a","b"].contains(resource.status)` and
+	// `[Workspace::"a"].contains(resource)` are membership tests, i.e. `IN`.
+	if (left.kind === "constant" && left.value.kind === "set") {
+		if (right.kind === "attr") {
+			return ok({ op: "in", attr: right.attr, values: left.value.value });
+		}
+
+		const marker = unknownVarOf(rightExpr);
+		if (marker !== undefined) {
+			if (marker !== target.unknownVar) {
+				return reject("wrong-unknown-root", rightExpr);
+			}
+			if (left.value.value.every((value) => value.kind === "entity")) {
+				return ok({ op: "in", attr: null, values: left.value.value });
+			}
+			return reject("unsupported-value", leftExpr);
+		}
 	}
 
 	// `resource.labels.contains("x")` — a set-valued column containing an element.

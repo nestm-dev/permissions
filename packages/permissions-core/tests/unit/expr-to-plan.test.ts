@@ -167,6 +167,34 @@ describe("pushdown table — supported forms", () => {
 		});
 	});
 
+	it("an entity set containing the row becomes row-identity `in`", () => {
+		expect(
+			node({
+				contains: {
+					left: {
+						Set: [entityValue("Station::Run", "r1"), entityValue("Station::Run", "r2")],
+					},
+					right: UNKNOWN,
+				},
+			}),
+		).toEqual({
+			op: "in",
+			attr: null,
+			values: [
+				{ kind: "entity", value: { type: "Run", id: "r1" } },
+				{ kind: "entity", value: { type: "Run", id: "r2" } },
+			],
+		});
+	});
+
+	it("an empty set containing the row becomes an empty row-identity `in`", () => {
+		expect(node({ contains: { left: { Set: [] }, right: UNKNOWN } })).toEqual({
+			op: "in",
+			attr: null,
+			values: [],
+		});
+	});
+
 	it("the attribute containing a constant becomes `contains`", () => {
 		expect(node({ contains: { left: attr("labels"), right: { Value: "x" } } })).toEqual({
 			op: "contains",

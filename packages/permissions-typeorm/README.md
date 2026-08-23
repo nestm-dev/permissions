@@ -280,11 +280,51 @@ each other's tables.
 
 ### Row-level security
 
-Nothing in the driver issues `SET`/`SET LOCAL`, so wrapping calls in your own tenant-context
-transaction works. `permissionsPostgresPolicyStatements({ role })` returns the `GRANT` and
-`ENABLE`/`FORCE ROW LEVEL SECURITY` statements — byte-identical to the Drizzle driver's — for the
-two tenant tables. The isolation `CREATE POLICY` itself is deliberately **not** generated: its
-`USING` clause is application-specific and a guessed predicate is worse than none.
+The store never invents a tenant or issues `SET`/`SET LOCAL`. Give it a
+`TypeOrmPolicyStoreExecutor` to put every foreground operation on the request's tenant-pinned
+`EntityManager`. The executor receives the exact scopes, access mode, isolation level, and commit
+ownership that the operation requires:
+
+Isolation requirements use the exported `TypeOrmPolicyStoreIsolationLevel` enum.
+
+```ts
+import type { TypeOrmPolicyStoreExecutor } from "@nestm/permissions-typeorm";
+
+const policyExecutor: TypeOrmPolicyStoreExecutor = {
+	async run(execution, work) {
+		// A tenant-only UUID scope column means every operation names exactly one scope.
+		const [expectedTenantId] = execution.scopes;
+		if (expectedTenantId === undefined || execution.scopes.length !== 1) {
+			throw new Error("Policy operation must target exactly one tenant");
+		}
+
+		return tenantTypeOrmRlsExecutor.transaction(work, {
+			accessMode: execution.access === "read-only" ? "read only" : "read write",
+			isolationLevel: execution.isolationLevel,
+			// A policy write emits its local watch event as soon as run() resolves. It
+			// must therefore own a real commit, never only an ambient savepoint.
+			propagation: execution.commitOwnership === "required" ? "reject" : "required",
+			expectedTenantId,
+		});
+	},
+};
+
+const store = new TypeOrmPolicyStore(dataSource, {
+	entities: permissionsEntities,
+	executor: policyExecutor,
+});
+```
+
+`load()` requests a read-only **repeatable-read** snapshot so policies, links, and their version
+cannot straddle a concurrent write. Every mutation requests read-write access and commit ownership;
+the store emits its synchronous cache-invalidation event only after `run()` resolves. The default
+executor provides these guarantees with a dedicated TypeORM `QueryRunner` when no request-aware
+executor is supplied.
+
+`permissionsPostgresPolicyStatements({ role })` returns the `GRANT` and `ENABLE`/`FORCE ROW LEVEL
+SECURITY` statements — byte-identical to the Drizzle driver's — for the two tenant tables. The
+isolation `CREATE POLICY` itself is deliberately **not** generated: its `USING` clause is
+application-specific and a guessed predicate is worse than none.
 
 > [!IMPORTANT]
 > **`scope_versions` is left unprotected by default, and that is the one thing a security reviewer
@@ -314,16 +354,17 @@ _wrong authorization_ rather than as a crash:
   separately would leave a window in which a replica loads the new policies under the old version
   and caches them forever.
 
-`load()`'s three reads are **sequential, not `Promise.all`**. A pooled manager would hand each of
-them a different connection, so the three halves of a bundle could straddle a concurrent write; and
-a manager bound to a query runner (an RLS deployment wrapping the store in its own transaction) has
-exactly one client, on which overlapping queries are removed in `pg@9`.
+`load()`'s three reads are **sequential, not `Promise.all`**, on the one manager supplied by a
+read-only repeatable-read executor transaction. A manager bound to a query runner has exactly one
+client, on which overlapping queries are removed in `pg@9`.
 
-Options: `entities`, `tablePrefix`, `scopeColumn`, `poll` (default `{ intervalMs: 5000 }`, `false`
-disables), `notify` (opt-in `LISTEN`/`NOTIFY` on a **dedicated, non-pooled** connection you supply),
-`onError`. A failed poll tick logs to `onError`, backs off exponentially to 60 s, and leaves both
-the watermark and the cache untouched — stale-but-known beats empty, because an empty policy set is
-`deny` everywhere downstream.
+Options: `entities`, `tablePrefix`, `scopeColumn`, `executor` (foreground transaction/RLS seam),
+`poll` (default `{ intervalMs: 5000 }`, `false` disables), `notify` (opt-in `LISTEN`/`NOTIFY` on a
+**dedicated, non-pooled** connection you supply), `onError`. Background polling deliberately uses
+the constructor's root `DataSource`, not the request executor, because it asks which scopes changed
+across the whole process. A failed poll tick logs to `onError`, backs off exponentially to 60 s, and
+leaves both the watermark and the cache untouched — stale-but-known beats empty, because an empty
+policy set is `deny` everywhere downstream.
 
 `dispose()` stops the poller and closes any `LISTEN` connection. It deliberately does **not** destroy
 the `DataSource`, which belongs to whoever created it.

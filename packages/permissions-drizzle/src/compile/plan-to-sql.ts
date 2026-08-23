@@ -221,7 +221,8 @@ function compileNode(node: PlanNode, mapping: DrizzleResourceMapping): SQL {
 }
 
 function compileCmp(node: Extract<PlanNode, { op: "cmp" }>, mapping: DrizzleResourceMapping): SQL {
-	const attribute = resolve(node.attr, mapping);
+	const attr = node.attr;
+	const attribute = resolve(attr, mapping);
 	const ordering = node.cmp !== "eq" && node.cmp !== "ne";
 
 	if (ordering) {
@@ -324,13 +325,32 @@ function compileSetCmp(
 }
 
 function compileIn(node: Extract<PlanNode, { op: "in" }>, mapping: DrizzleResourceMapping): SQL {
-	const attribute = resolve(node.attr, mapping);
-
 	// Empty ⇒ `false`. `col IN ()` is a syntax error in Postgres, and drizzle's
 	// `inArray` produces it, so the list is never handed over empty.
 	if (node.values.length === 0) {
 		return sqlFalse();
 	}
+
+	if (node.attr === null) {
+		const ids: SQL[] = [];
+		for (const value of node.values) {
+			if (value.kind !== "entity") {
+				throw new PlanCompilationError(
+					"entity-column-mismatch",
+					`The plan tests the ${mapping.resourceType} row identity against a ${value.kind} ` +
+						"constant; row-identity membership accepts only entity references.",
+					{ resourceType: mapping.resourceType },
+				);
+			}
+			if (value.value.type === mapping.resourceType) {
+				ids.push(bindEntityId(value.value.id));
+			}
+		}
+		return ids.length === 0 ? sqlFalse() : sql`${mapping.id} in (${sql.join(ids, sql`, `)})`;
+	}
+
+	const attr = node.attr;
+	const attribute = resolve(attr, mapping);
 
 	if (attribute.kind === "entity") {
 		const ids: SQL[] = [];
@@ -338,9 +358,9 @@ function compileIn(node: Extract<PlanNode, { op: "in" }>, mapping: DrizzleResour
 			if (value.kind !== "entity") {
 				throw new PlanCompilationError(
 					"entity-column-mismatch",
-					`"${mapping.resourceType}.${pathOf(node.attr)}" is mapped as an entity column, but ` +
+					`"${mapping.resourceType}.${pathOf(attr)}" is mapped as an entity column, but ` +
 						`the plan tests it against a ${value.kind} constant.`,
-					{ resourceType: mapping.resourceType, attribute: pathOf(node.attr) },
+					{ resourceType: mapping.resourceType, attribute: pathOf(attr) },
 				);
 			}
 			// A constant of a different type can never equal an id in this column, so
@@ -355,15 +375,15 @@ function compileIn(node: Extract<PlanNode, { op: "in" }>, mapping: DrizzleResour
 		return sql`${attribute.column} in (${sql.join(ids, sql`, `)})`;
 	}
 
-	const kind = scalarKindOf(attribute, node.attr, mapping);
+	const kind = scalarKindOf(attribute, attr, mapping);
 	const binds = node.values.map((value) =>
 		bindScalar(value, kind, {
 			resourceType: mapping.resourceType,
-			attribute: pathOf(node.attr),
+			attribute: pathOf(attr),
 		}),
 	);
 
-	return sql`${valueExpression(attribute, mapping, node.attr)} in (${sql.join(binds, sql`, `)})`;
+	return sql`${valueExpression(attribute, mapping, attr)} in (${sql.join(binds, sql`, `)})`;
 }
 
 function compileContains(
