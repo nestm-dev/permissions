@@ -1,5 +1,24 @@
 # @nestm/permissions-typeorm
 
+## 0.1.0-alpha.4
+
+### Minor Changes
+
+- 31b0aa4: Add a request-aware `TypeOrmPolicyStoreExecutor` seam. Foreground policy reads and writes now run on
+  one pinned `EntityManager`, declare their exact scopes, access mode, isolation level, and commit
+  ownership, and keep local watch events strictly post-commit. The default executor uses a dedicated
+  TypeORM `QueryRunner`; tenant/RLS integrations can supply their context-derived transaction runner.
+  Isolation requirements are exposed through the `TypeOrmPolicyStoreIsolationLevel` enum.
+
+### Patch Changes
+
+- 5afc225: Compile Cedar entity-set membership over the planned resource identity. Policies such as
+  `principal.allowedResources.contains(resource)` now produce an exact primary-key `IN` plan,
+  including a constant-deny plan for empty sets, with matching TypeORM, Drizzle, and reference
+  interpreter behavior.
+- Updated dependencies [5afc225]
+  - @nestm/permissions-core@0.1.0-alpha.4
+
 ## 0.1.0-alpha.3
 
 ### Patch Changes

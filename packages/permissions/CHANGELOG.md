@@ -1,5 +1,12 @@
 # @nestm/permissions
 
+## 0.1.0-alpha.4
+
+### Patch Changes
+
+- Updated dependencies [5afc225]
+  - @nestm/permissions-core@0.1.0-alpha.4
+
 ## 0.1.0-alpha.3
 
 ### Patch Changes

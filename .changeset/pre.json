@@ -12,8 +12,10 @@
     "calm-drizzle-authorization",
     "context-aware-builder",
     "initial-alpha-release",
+    "pinned-typeorm-policy-store",
     "public-metadata-precedence",
     "ready-existing-providers",
+    "row-identity-membership",
     "strong-permission-freshness"
   ]
 }
