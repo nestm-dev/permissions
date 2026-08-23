@@ -1,5 +1,14 @@
 # @nestm/permissions-core
 
+## 0.1.0-alpha.4
+
+### Patch Changes
+
+- 5afc225: Compile Cedar entity-set membership over the planned resource identity. Policies such as
+  `principal.allowedResources.contains(resource)` now produce an exact primary-key `IN` plan,
+  including a constant-deny plan for empty sets, with matching TypeORM, Drizzle, and reference
+  interpreter behavior.
+
 ## 0.1.0-alpha.3
 
 ## 0.1.0-alpha.2

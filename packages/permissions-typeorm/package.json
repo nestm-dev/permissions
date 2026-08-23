@@ -1,6 +1,6 @@
 {
 	"name": "@nestm/permissions-typeorm",
-	"version": "0.1.0-alpha.3",
+	"version": "0.1.0-alpha.4",
 	"description": "TypeORM policy store and query-plan-to-SQL compiler for @nestm/permissions.",
 	"license": "BSD-3-Clause",
 	"author": "nestm",
