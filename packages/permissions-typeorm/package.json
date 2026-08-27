@@ -74,7 +74,7 @@
 		"@nestm/permissions-core": "workspace:^"
 	},
 	"peerDependencies": {
-		"@nestjs/common": "^12.0.0-alpha.5",
+		"@nestjs/common": "^12.0.0",
 		"typeorm": "^1.1.0"
 	},
 	"peerDependenciesMeta": {
@@ -83,10 +83,10 @@
 		}
 	},
 	"devDependencies": {
-		"@nestjs/common": "12.0.0-alpha.5",
-		"@types/pg": "8.20.4",
+		"@nestjs/common": "12.0.1",
+		"@types/pg": "8.23.1",
 		"fast-check": "^4.9.0",
-		"pg": "8.22.0",
+		"pg": "8.23.0",
 		"typeorm": "1.1.0"
 	}
 }

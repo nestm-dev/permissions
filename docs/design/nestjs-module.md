@@ -23,7 +23,7 @@ Any package here has constructor DI, so **better-auth wins every divergence**:
 ```
 permissions/                        github.com/nestm-dev/permissions
 ├─ pnpm-workspace.yaml              packages: ['packages/*','examples/*']
-│                                   + peerDependencyRules(Nest 12) + allowBuilds{@nestjs/core:false} + provenance:true
+│                                   + allowBuilds{@nestjs/core:false} + provenance:true
 ├─ package.json                     private:true; scripts delegate `pnpm -r --filter …`
 ├─ tsconfig.base.json               shared compilerOptions (better-auth's, verbatimModuleSyntax:false)
 ├─ tsconfig.json                    solution-style `references` → 4 packages (`tsc -b` for typecheck)
@@ -40,7 +40,7 @@ permissions/                        github.com/nestm-dev/permissions
 ```jsonc
 "fixed": [["@nestm/permissions-core","@nestm/permissions","@nestm/permissions-typeorm","@nestm/permissions-drizzle"]]
 ```
-`.changeset/pre.json` → `{ mode:"pre", tag:"alpha", initialVersions: { …all four: "0.1.0-alpha.0" } }`.
+`.changeset/pre.json` → `{ mode:"pre", tag:"alpha" }`; consumed prerelease changesets live in `.changeset/pre/`.
 Rationale: the `QueryPlan` AST lives in core; every driver is pinned to it. Lockstep versions also guarantee pnpm/npm dedupes to **one physical copy of core** — critical, because Cedar's WASM caches preparsed policy sets by string ID *per module instance*.
 
 **Cross-package deps:** all three consumers take `@nestm/permissions-core` as a plain **`dependency`** (`workspace:^`, rewritten on publish). Do *not* use peers — with `fixed` versioning a single range resolves to one copy, and peers on a sibling are user-hostile.
@@ -51,15 +51,14 @@ Rationale: the `QueryPlan` AST lives in core; every driver is pinned to it. Lock
 2. CI job `core-framework-free`: `pnpm pack` core → install the tarball into a bare temp dir with **zero** `@nestjs` packages → `node -e "import('@nestm/permissions-core').then(m=>m.createAuthorizationEngine)"`. Black-box, catches transitive leaks.
 
 **CI matrix** (`ci.yml`, adapted from `better-auth/.github/workflows/ci.yml`):
-- `check` (node 24): `pnpm -r run lint`, `format:check`, `tsc -b`
-- `build` → matrix over the 4 packages: `publint --strict` + `attw --pack packages/$P --profile esm-only`; the `design:paramtypes` grep runs on **`packages/permissions/dist/index.mjs`** only (core has no DI)
+- `check` (node 24): root lint, format check and `tsc -b`, then the registry-augmenting example's typecheck and build
+- `build` → matrix over the 4 packages: `publint --strict` + `attw --pack packages/$P --profile esm-only`; the `design:paramtypes` grep runs on the Nest package and both drivers' `./nestjs` entries (core has no DI)
 - `test` matrix `node:[22,24] × adapter:[express,fastify]` → `@nestm/permissions`; `node:[22,24]` → core
 - `test-drivers` — `services: postgres:16-alpine`, runs the two ORM packages' integration suites
 - `core-framework-free` (above)
 - `canary` (non-blocking): `pnpm up "@nestjs/*@next"` **and** `pnpm up @cedar-policy/cedar-wasm@latest` — the cedar canary is load-bearing because `isAuthorizedPartial` is experimental
-- `npm-peer-smoke` verbatim
 
-**`release.yml`** = better-auth's, with `publish: pnpm run release` → the hardened `scripts/publish.mjs`. Three adaptations: (a) `publish-state.mjs` gains `assertFixedVersions(versions[], preState)` that reads all four `package.json`s and refuses to publish if they diverge or mismatch the pre-tag; (b) the "reconcile git tag with npm" step loops over all four names; (c) `title`/`commit` → `chore: release @nestm/permissions`.
+**`release.yml`** = better-auth's, with Changesets action v2 `publish-script: pnpm run release` → the hardened `scripts/publish.mjs` and `version-script: pnpm run version-packages`. Three adaptations: (a) `publish-state.mjs` gains `assertFixedVersions(versions[], preState)` that reads all four `package.json`s and refuses to publish if they diverge or mismatch the pre-tag; (b) the "reconcile git tag with npm" step loops over all four names; (c) `pr-title`/`commit-message` → `chore: release @nestm/permissions`.
 
 ---
 

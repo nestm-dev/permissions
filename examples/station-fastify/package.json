@@ -15,17 +15,17 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@nestjs/common": "12.0.0-alpha.5",
-		"@nestjs/core": "12.0.0-alpha.5",
-		"@nestjs/platform-fastify": "12.0.0-alpha.5",
+		"@nestjs/common": "12.0.1",
+		"@nestjs/core": "12.0.1",
+		"@nestjs/platform-fastify": "12.0.1",
 		"@nestm/permissions": "workspace:^",
 		"@nestm/permissions-core": "workspace:^",
-		"fastify": "5.11.2",
+		"fastify": "5.12.1",
 		"reflect-metadata": "0.2.2",
 		"rxjs": "7.8.2"
 	},
 	"devDependencies": {
-		"@types/node": "26.1.2",
+		"@types/node": "26.4.0",
 		"tsdown": "0.22.14",
 		"typescript": "7.0.2"
 	}

@@ -69,9 +69,9 @@ describe("findFrameworkDependencies", () => {
 		expect(
 			findFrameworkDependencies({
 				dependencies: { "@cedar-policy/cedar-wasm": "4.12.0" },
-				peerDependencies: { "@nestjs/common": "^12.0.0-alpha.5" },
-				devDependencies: { "@nestjs/testing": "12.0.0-alpha.5" },
-				optionalDependencies: { "@nestjs/core": "^12.0.0-alpha.5" },
+				peerDependencies: { "@nestjs/common": "^12.0.0" },
+				devDependencies: { "@nestjs/testing": "12.0.1" },
+				optionalDependencies: { "@nestjs/core": "^12.0.0" },
 			}),
 		).toEqual([
 			"devDependencies.@nestjs/testing",
@@ -113,7 +113,7 @@ describe("assertCoreFrameworkFree", () => {
 		const directory = createFakePackage({
 			manifest: {
 				name: "@nestm/permissions-core",
-				peerDependencies: { "@nestjs/common": "^12.0.0-alpha.5" },
+				peerDependencies: { "@nestjs/common": "^12.0.0" },
 			},
 			sources: { "index.ts": "export const ok = true;\n" },
 		});

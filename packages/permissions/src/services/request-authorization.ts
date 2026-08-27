@@ -140,7 +140,7 @@ export class RequestAuthorization {
 	 */
 	async can(
 		action: ActionName,
-		resource: EntityRef,
+		resource: EntityRef<ResourceTypeName>,
 		options: RequestCanOptions = {},
 	): Promise<boolean> {
 		const scope = options.scope ?? this.scope;

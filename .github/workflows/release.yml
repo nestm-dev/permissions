@@ -48,7 +48,7 @@ jobs:
       # `changeset publish` shells out to `pnpm publish` (not the npm CLI), so
       # OIDC trusted publishing comes from pnpm's native implementation —
       # which requires pnpm >= 11.11 (11.0.x had a broken OIDC exchange).
-      # packageManager pins 11.20.0; this guard catches accidental downgrades.
+      # packageManager pins 11.24.0; this guard catches accidental downgrades.
       - name: Assert pnpm supports native OIDC publishing
         run: |
           node -e '
@@ -73,18 +73,19 @@ jobs:
       - run: node scripts/assert-core-framework-free.mjs
       - name: Create release PR or publish to npm
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
         with:
           # With pending changesets: opens/updates the "Version Packages" PR.
           # When that PR is merged (no pending changesets left): the hardened
           # wrapper validates the fixed-group versions against
           # `.changeset/pre.json`, then publishes via pnpm's OIDC trusted
           # publishing (provenance enforced in pnpm-workspace.yaml).
-          publish: pnpm run release
-          version: pnpm changeset version
-          title: "chore: release @nestm/permissions"
-          commit: "chore: release @nestm/permissions"
-          createGithubReleases: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          publish-script: pnpm run release
+          version-script: pnpm run version-packages
+          pr-title: "chore: release @nestm/permissions"
+          commit-message: "chore: release @nestm/permissions"
+          create-github-releases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # `changeset publish` pushes tags only after a successful npm publish; if

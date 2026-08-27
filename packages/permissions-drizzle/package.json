@@ -79,7 +79,7 @@
 		"@nestm/permissions-core": "workspace:^"
 	},
 	"peerDependencies": {
-		"@nestjs/common": "^12.0.0-alpha.5",
+		"@nestjs/common": "^12.0.0",
 		"drizzle-kit": "^0.31.0",
 		"drizzle-orm": "^0.45.0"
 	},
@@ -92,11 +92,11 @@
 		}
 	},
 	"devDependencies": {
-		"@nestjs/common": "12.0.0-alpha.5",
-		"@types/pg": "8.20.4",
+		"@nestjs/common": "12.0.1",
+		"@types/pg": "8.23.1",
 		"drizzle-kit": "0.31.10",
 		"drizzle-orm": "0.45.2",
 		"fast-check": "^4.9.0",
-		"pg": "8.22.0"
+		"pg": "8.23.0"
 	}
 }

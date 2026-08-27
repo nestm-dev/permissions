@@ -2,7 +2,7 @@
 
 ## Context
 
-Kauan builds the `@nestm/*` family of NestJS 12 libraries (`standard-schema`, `better-auth`). The next library is a **granular, AWS-IAM-like permission system**: policy-based (Allow/Deny, default-deny, deny-overrides), generic across projects, with ORM drivers, and adoptable by `/Users/kauan/Projects/concepta/station` (NestJS 12 alpha + Fastify + Drizzle/Postgres FORCE-RLS), which today has a deliberate but closed-enum permission system (ADR-0004) whose framework-free core lives in `packages/platform/src/authorization.ts`.
+Kauan builds the `@nestm/*` family of NestJS 12 libraries (`standard-schema`, `better-auth`). The next library is a **granular, AWS-IAM-like permission system**: policy-based (Allow/Deny, default-deny, deny-overrides), generic across projects, with ORM drivers, and adoptable by `/Users/kauan/Projects/concepta/station` (NestJS 12 + Fastify + Drizzle/Postgres FORCE-RLS), which today has a deliberate but closed-enum permission system (ADR-0004) whose framework-free core lives in `packages/platform/src/authorization.ts`.
 
 Recon (live-verified 2026-07-30) showed **no maintained JS library implements IAM policy documents**, and no NestJS module exists for Cedar/Cerbos at all. The genuine ecosystem gaps this library fills: policy-based NestJS authz with **DB-backed runtime-editable policies** and **ORM row-filtering** (unserved for TypeORM by anyone; barely for Drizzle).
 
@@ -62,7 +62,7 @@ These bind the implementation; full evidence in the design docs (see References)
 
 - Workspace `packages/* + examples/*`; root solution-style `tsc -b`; changesets **fixed** across all four (one physical copy of core — two copies = two WASM instances = sporadic "unknown policy set"; core also registers `Symbol.for('@nestm/permissions-core/instance')` on `globalThis` and errors on duplicate load). Core is a plain `dependency` (`workspace:^`) of the other three — not a peer.
 - "Core stays Nest-free" enforced twice: `scripts/assert-core-framework-free.mjs` (static grep) + CI job installing the packed core tarball into a bare dir with zero `@nestjs/*` and importing it.
-- CI: `check` / per-package `build` (publint --strict + attw esm-only + `design:paramtypes` grep on the Nest package) / `test` matrix node 22,24 × express,fastify / `test-drivers` with `services: postgres:16-alpine` / `core-framework-free` / non-blocking `canary` (`@nestjs/*@next` **and** `cedar-wasm@latest` — load-bearing given experimental partial eval) / `npm-peer-smoke`.
+- CI: `check` / per-package `build` (publint --strict + attw esm-only + `design:paramtypes` grep on the Nest package) / `test` matrix node 22,24 × express,fastify / `test-drivers` with `services: postgres:16-alpine` / `core-framework-free` / non-blocking `canary` (`@nestjs/*@next` **and** `cedar-wasm@latest` — load-bearing given experimental partial eval).
 - Release: standard-schema's hardened `scripts/publish.mjs` adapted for multi-package (`assertFixedVersions`, tag reconciliation loop). npm Trusted Publishing OIDC; first alpha published manually per package then bound via `npm trust`.
 - License/author: **BSD-3-Clause © nestm** (user-confirmed — matches better-auth; standard-schema retrofits later).
 
@@ -122,7 +122,7 @@ Phases gate on each other; core check-path first, plan compiler before drivers.
 2. Unsound plan compiler = wrong rows → fail-closed default, single tested direction function, set-equality property tests, shipped reference interpreter for driver differentials.
 3. Errored `forbid` disappearing → `ErroredPolicyError` by default, typed entity builder, `validateOnLoad`.
 4. WASM memory monotonicity → stable ids, evict-by-empty, `maxScopes` sizing table in README.
-5. NestJS 12 alpha peer churn → family's `peerDependencyRules` + `npm-peer-smoke` canary.
+5. NestJS major-version churn → stable `^12.0.0` peers plus the non-blocking `@nestjs/*@next` canary.
 6. Uncompilable plan node silently becoming `TRUE` in a driver → total compile functions, typed throws for every unmapped case, differential suites; `ALWAYS_DENY` compiles to literal `FALSE`.
 7. Cedar's transitive `in` widens project grants beyond station's literal param matching → intended, but treated as a security-boundary change: shadow-mode divergence class, reviewed + tested explicitly.
 8. Projection drift `role_grants` ↔ `permission_policy_links` → same-transaction writes + composite `ON DELETE CASCADE` FK + CI drift check.

@@ -50,7 +50,8 @@ import {
  * Every string the suite pushes through as data.
  *
  * Each entry is here for a reason a code reviewer can name: `'` closes a string
- * literal, `--` and `/* *​/` start comments, `;` ends a statement, `%` and `_`
+ * literal, `--` and block-comment delimiters start comments, `;` ends a
+ * statement, `%` and `_`
  * are `LIKE` metacharacters, `\` is the default `ESCAPE`, `"` closes an
  * identifier, `$1` looks like a placeholder, and `\u0000` is the one byte
  * Postgres refuses inside a `text` value at all.

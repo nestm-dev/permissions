@@ -1,21 +1,4 @@
 {
-  "mode": "pre",
-  "tag": "alpha",
-  "initialVersions": {
-    "@nestm/permissions-core": "0.1.0-alpha.0",
-    "@nestm/permissions": "0.1.0-alpha.0",
-    "@nestm/permissions-typeorm": "0.1.0-alpha.0",
-    "@nestm/permissions-drizzle": "0.1.0-alpha.0",
-    "@nestm/example-station-fastify": "0.0.0"
-  },
-  "changesets": [
-    "calm-drizzle-authorization",
-    "context-aware-builder",
-    "initial-alpha-release",
-    "pinned-typeorm-policy-store",
-    "public-metadata-precedence",
-    "ready-existing-providers",
-    "row-identity-membership",
-    "strong-permission-freshness"
-  ]
+	"mode": "pre",
+	"tag": "alpha"
 }
