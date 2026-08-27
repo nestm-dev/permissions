@@ -1,6 +1,6 @@
 {
 	"name": "@nestm/permissions-core",
-	"version": "0.1.0-alpha.4",
+	"version": "0.1.0-alpha.5",
 	"description": "Framework-free Cedar authorization engine, policy-store SPI and query-plan AST for @nestm/permissions.",
 	"license": "BSD-3-Clause",
 	"author": "nestm",
