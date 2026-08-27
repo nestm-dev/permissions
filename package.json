@@ -17,7 +17,7 @@
 	"engines": {
 		"node": ">=22.12.0"
 	},
-	"packageManager": "pnpm@11.20.0",
+	"packageManager": "pnpm@11.24.0",
 	"scripts": {
 		"build": "pnpm --filter \"./packages/*\" run build",
 		"clean": "node scripts/clean.mjs",
@@ -34,19 +34,20 @@
 		"verify:pack": "pnpm run build && pnpm --filter \"./packages/*\" exec publint --strict",
 		"assert:core-framework-free": "node scripts/assert-core-framework-free.mjs",
 		"changeset": "changeset",
+		"version-packages": "changeset version",
 		"release": "node scripts/publish.mjs"
 	},
 	"devDependencies": {
 		"@arethetypeswrong/cli": "0.18.5",
-		"@changesets/cli": "2.31.1",
-		"@types/node": "26.1.2",
-		"@vitest/coverage-v8": "4.1.10",
-		"oxlint": "1.77.0",
+		"@changesets/cli": "3.0.1",
+		"@types/node": "26.4.0",
+		"@vitest/coverage-v8": "4.1.11",
+		"oxlint": "1.80.0",
 		"oxlint-tsgolint": "7.0.2001",
 		"prettier": "3.9.6",
-		"publint": "0.3.23",
+		"publint": "0.3.24",
 		"tsdown": "0.22.14",
 		"typescript": "7.0.2",
-		"vitest": "4.1.10"
+		"vitest": "4.1.11"
 	}
 }

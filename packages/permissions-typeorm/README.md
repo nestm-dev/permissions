@@ -33,7 +33,7 @@ Live-verified corrections: [`docs/design/errata.md`](../../docs/design/errata.md
 npm install @nestm/permissions-typeorm@alpha typeorm pg
 ```
 
-Peers: `typeorm@^1.1`, and optionally `@nestjs/common@^12.0.0-alpha` (the `./nestjs` subpath).
+Peers: `typeorm@^1.1`, and optionally `@nestjs/common@^12.0.0` (the `./nestjs` subpath).
 `@nestm/permissions-core` is a hard dependency. ESM only, Postgres only.
 
 > [!IMPORTANT]

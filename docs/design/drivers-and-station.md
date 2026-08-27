@@ -464,7 +464,7 @@ An org-wide grant residual `resource in Organization::"o"` compiles to `projects
 ```
 packages/permissions-typeorm/                       packages/permissions-drizzle/
 ├─ package.json  (peer typeorm ^1.1.0, optional     ├─ package.json  (peer drizzle-orm ^0.45.0,
-│   peers @nestjs/common ^12.0.0-alpha, @nestjs/    │   optional peers @nestjs/common, drizzle-kit;
+│   peers @nestjs/common ^12.0.0, @nestjs/          │   optional peers @nestjs/common, drizzle-kit;
 │   typeorm; dep @nestm/permissions-core            │   dep @nestm/permissions-core workspace:^)
 │   workspace:^; exports ".", "./nestjs",           │   exports ".", "./nestjs", "./schema",
 │   "./testing", "./package.json")                  │   "./testing", "./package.json"

@@ -35,7 +35,7 @@ npm install @nestm/permissions-drizzle@alpha drizzle-orm
 ```
 
 Peers: `drizzle-orm@^0.45`, and optionally `drizzle-kit@^0.31` (migrations) and
-`@nestjs/common@^12.0.0-alpha` (the `./nestjs` subpath). `@nestm/permissions-core` is a hard
+`@nestjs/common@^12.0.0` (the `./nestjs` subpath). `@nestm/permissions-core` is a hard
 dependency. Node >= 22.12, ESM only, Postgres only.
 
 ## Quick start
