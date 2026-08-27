@@ -1,5 +1,13 @@
 # @nestm/permissions-typeorm
 
+## 0.1.0-alpha.5
+
+### Patch Changes
+
+- 7f5706f: Declare stable NestJS 12 peer support, preserve vocabulary-aware resource types for imperative checks, and refresh the supported dependency and release toolchain.
+- Updated dependencies [7f5706f]
+  - @nestm/permissions-core@0.1.0-alpha.5
+
 ## 0.1.0-alpha.4
 
 ### Minor Changes
