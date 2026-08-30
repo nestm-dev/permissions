@@ -7,7 +7,14 @@ export type TypeOrmPolicyStoreOperation =
 	"load" | "currentVersion" | "save" | "delete" | "linkTemplate" | "unlinkTemplate";
 
 /** Whether the operation only reads policy state or may mutate it. */
-export type TypeOrmPolicyStoreAccess = "read-only" | "read-write";
+export const TypeOrmPolicyStoreAccess = {
+	READ_ONLY: "read-only",
+	READ_WRITE: "read-write",
+} as const;
+
+/** A policy-store access mode required by a foreground operation. */
+export type TypeOrmPolicyStoreAccess =
+	(typeof TypeOrmPolicyStoreAccess)[keyof typeof TypeOrmPolicyStoreAccess];
 
 /** PostgreSQL snapshot level the executor must provide for an operation. */
 export const TypeOrmPolicyStoreIsolationLevel = {
@@ -87,7 +94,7 @@ export function defaultTypeOrmPolicyStoreExecutor(
 			await runner.connect();
 			await runner.startTransaction(execution.isolationLevel);
 			try {
-				if (execution.access === "read-only") {
+				if (execution.access === TypeOrmPolicyStoreAccess.READ_ONLY) {
 					await runner.query("SET TRANSACTION READ ONLY");
 				}
 				const result = await work(runner.manager);

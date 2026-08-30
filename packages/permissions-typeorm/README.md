@@ -285,13 +285,16 @@ The store never invents a tenant or issues `SET`/`SET LOCAL`. Give it a
 `EntityManager`. The executor receives the exact scopes, access mode, isolation level, and commit
 ownership that the operation requires:
 
-Isolation requirements use the exported `TypeOrmPolicyStoreIsolationLevel` constant and derived
-union type. Its uppercase values are native TypeORM `IsolationLevel` values, so executors can pass
-`execution.isolationLevel` directly to `QueryRunner.startTransaction()` or
-`DataSource.transaction()` without translating it.
+Access and isolation requirements use the exported `TypeOrmPolicyStoreAccess` and
+`TypeOrmPolicyStoreIsolationLevel` constants and derived union types. Isolation values are native
+uppercase TypeORM `IsolationLevel` values, so executors can pass `execution.isolationLevel`
+directly to `QueryRunner.startTransaction()` or `DataSource.transaction()` without translating it.
 
 ```ts
-import type { TypeOrmPolicyStoreExecutor } from "@nestm/permissions-typeorm";
+import {
+	TypeOrmPolicyStoreAccess,
+	type TypeOrmPolicyStoreExecutor,
+} from "@nestm/permissions-typeorm";
 
 const policyExecutor: TypeOrmPolicyStoreExecutor = {
 	async run(execution, work) {
@@ -302,7 +305,8 @@ const policyExecutor: TypeOrmPolicyStoreExecutor = {
 		}
 
 		return tenantTypeOrmRlsExecutor.transaction(work, {
-			accessMode: execution.access === "read-only" ? "read only" : "read write",
+			accessMode:
+				execution.access === TypeOrmPolicyStoreAccess.READ_ONLY ? "read only" : "read write",
 			isolationLevel: execution.isolationLevel,
 			// A policy write emits its local watch event as soon as run() resolves. It
 			// must therefore own a real commit, never only an ambient savepoint.
