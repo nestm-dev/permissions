@@ -59,8 +59,8 @@ import {
 } from "../entities/rows.ts";
 import {
 	defaultTypeOrmPolicyStoreExecutor,
+	TypeOrmPolicyStoreAccess,
 	TypeOrmPolicyStoreIsolationLevel,
-	type TypeOrmPolicyStoreAccess,
 	type TypeOrmPolicyStoreCommitOwnership,
 	type TypeOrmPolicyStoreExecution,
 	type TypeOrmPolicyStoreExecutor,
@@ -70,8 +70,8 @@ import { DEFAULT_POLL_INTERVAL_MS, type PolicyStoreDriverOptions } from "./optio
 import { PolicyChangeWatcher, PolicyNotifyListener, type WatcherTimers } from "./watcher.ts";
 
 export {
+	TypeOrmPolicyStoreAccess,
 	TypeOrmPolicyStoreIsolationLevel,
-	type TypeOrmPolicyStoreAccess,
 	type TypeOrmPolicyStoreCommitOwnership,
 	type TypeOrmPolicyStoreExecution,
 	type TypeOrmPolicyStoreExecutor,
@@ -204,7 +204,12 @@ export class TypeOrmPolicyStore implements PolicyStore {
 	async load(scope: PolicyScopeId): Promise<PolicyBundle> {
 		const scopes = this.#effectiveScopes(scope);
 		return this.#executor.run(
-			execution("load", "read-only", scopes, TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ),
+			execution(
+				"load",
+				TypeOrmPolicyStoreAccess.READ_ONLY,
+				scopes,
+				TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ,
+			),
 			(manager) => this.#loadSnapshot(manager, scope, scopes),
 		);
 	}
@@ -256,7 +261,7 @@ export class TypeOrmPolicyStore implements PolicyStore {
 	/** {@inheritDoc PolicyStore.currentVersion} */
 	async currentVersion(scope: PolicyScopeId): Promise<string> {
 		return this.#executor.run(
-			execution("currentVersion", "read-only", this.#effectiveScopes(scope)),
+			execution("currentVersion", TypeOrmPolicyStoreAccess.READ_ONLY, this.#effectiveScopes(scope)),
 			(manager) => this.#readVersions(manager, scope),
 		);
 	}
@@ -281,7 +286,7 @@ export class TypeOrmPolicyStore implements PolicyStore {
 		const resolved = this.#resolve();
 
 		await this.#executor.run(
-			execution("save", "read-write", [...touched].toSorted()),
+			execution("save", TypeOrmPolicyStoreAccess.READ_WRITE, [...touched].toSorted()),
 			async (manager) => {
 				await manager
 					.createQueryBuilder()
@@ -328,7 +333,7 @@ export class TypeOrmPolicyStore implements PolicyStore {
 		const scopeValue = this.#toColumn(scope);
 
 		const removed = await this.#executor.run(
-			execution("delete", "read-write", [scope]),
+			execution("delete", TypeOrmPolicyStoreAccess.READ_WRITE, [scope]),
 			async (manager) => {
 				const result = await manager
 					.createQueryBuilder()
@@ -358,7 +363,7 @@ export class TypeOrmPolicyStore implements PolicyStore {
 		const values = { scope: this.#toColumn(link.scope), ...linkRowValues(link) };
 
 		await this.#executor.run(
-			execution("linkTemplate", "read-write", [link.scope]),
+			execution("linkTemplate", TypeOrmPolicyStoreAccess.READ_WRITE, [link.scope]),
 			async (manager) => {
 				await manager
 					.createQueryBuilder()
@@ -392,7 +397,7 @@ export class TypeOrmPolicyStore implements PolicyStore {
 		const scopeValue = this.#toColumn(scope);
 
 		const removed = await this.#executor.run(
-			execution("unlinkTemplate", "read-write", [scope]),
+			execution("unlinkTemplate", TypeOrmPolicyStoreAccess.READ_WRITE, [scope]),
 			async (manager) => {
 				const result = await manager
 					.createQueryBuilder()
@@ -817,7 +822,7 @@ function execution(
 	isolationLevel: TypeOrmPolicyStoreIsolationLevel = TypeOrmPolicyStoreIsolationLevel.READ_COMMITTED,
 ): TypeOrmPolicyStoreExecution {
 	const commitOwnership: TypeOrmPolicyStoreCommitOwnership =
-		access === "read-write" ? "required" : "not-required";
+		access === TypeOrmPolicyStoreAccess.READ_WRITE ? "required" : "not-required";
 	return Object.freeze({
 		operation,
 		access,

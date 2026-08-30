@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
 	TypeOrmPolicyStore,
+	TypeOrmPolicyStoreAccess,
 	type TypeOrmPolicyStoreExecution,
 	type TypeOrmPolicyStoreExecutor,
 } from "../../src/store/typeorm-policy-store.ts";
@@ -38,7 +39,7 @@ async function runTransaction<Result>(
 	await runner.connect();
 	await runner.startTransaction(execution.isolationLevel);
 	try {
-		if (execution.access === "read-only") {
+		if (execution.access === TypeOrmPolicyStoreAccess.READ_ONLY) {
 			await runner.query("SET TRANSACTION READ ONLY");
 		}
 		const result = await work(runner.manager);

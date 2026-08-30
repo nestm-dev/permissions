@@ -66,8 +66,8 @@ export {
 
 export {
 	TypeOrmPolicyStore,
+	TypeOrmPolicyStoreAccess,
 	TypeOrmPolicyStoreIsolationLevel,
-	type TypeOrmPolicyStoreAccess,
 	type TypeOrmPolicyStoreCommitOwnership,
 	type TypeOrmPolicyStoreExecution,
 	type TypeOrmPolicyStoreExecutor,
