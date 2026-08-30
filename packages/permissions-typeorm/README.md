@@ -285,7 +285,10 @@ The store never invents a tenant or issues `SET`/`SET LOCAL`. Give it a
 `EntityManager`. The executor receives the exact scopes, access mode, isolation level, and commit
 ownership that the operation requires:
 
-Isolation requirements use the exported `TypeOrmPolicyStoreIsolationLevel` enum.
+Isolation requirements use the exported `TypeOrmPolicyStoreIsolationLevel` constant and derived
+union type. Its uppercase values are native TypeORM `IsolationLevel` values, so executors can pass
+`execution.isolationLevel` directly to `QueryRunner.startTransaction()` or
+`DataSource.transaction()` without translating it.
 
 ```ts
 import type { TypeOrmPolicyStoreExecutor } from "@nestm/permissions-typeorm";

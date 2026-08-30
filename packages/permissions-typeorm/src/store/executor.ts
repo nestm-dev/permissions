@@ -1,5 +1,6 @@
 import type { PolicyScopeId } from "@nestm/permissions-core";
 import type { DataSource, EntityManager } from "typeorm";
+import type { IsolationLevel } from "typeorm/driver/types/IsolationLevel.js";
 
 /** Every foreground operation a {@link TypeOrmPolicyStoreExecutor} can run. */
 export type TypeOrmPolicyStoreOperation =
@@ -9,12 +10,16 @@ export type TypeOrmPolicyStoreOperation =
 export type TypeOrmPolicyStoreAccess = "read-only" | "read-write";
 
 /** PostgreSQL snapshot level the executor must provide for an operation. */
-export enum TypeOrmPolicyStoreIsolationLevel {
-	READ_UNCOMMITTED = "read uncommitted",
-	READ_COMMITTED = "read committed",
-	REPEATABLE_READ = "repeatable read",
-	SERIALIZABLE = "serializable",
-}
+export const TypeOrmPolicyStoreIsolationLevel = {
+	READ_UNCOMMITTED: "READ UNCOMMITTED",
+	READ_COMMITTED: "READ COMMITTED",
+	REPEATABLE_READ: "REPEATABLE READ",
+	SERIALIZABLE: "SERIALIZABLE",
+} as const satisfies Readonly<Record<string, IsolationLevel>>;
+
+/** A native TypeORM isolation level supported by the policy-store executor. */
+export type TypeOrmPolicyStoreIsolationLevel =
+	(typeof TypeOrmPolicyStoreIsolationLevel)[keyof typeof TypeOrmPolicyStoreIsolationLevel];
 
 /** Whether `run()` must own the commit that makes the operation durable. */
 export type TypeOrmPolicyStoreCommitOwnership = "required" | "not-required";
@@ -61,18 +66,6 @@ export interface TypeOrmPolicyStoreExecutor {
 	): Promise<Result>;
 }
 
-const TYPEORM_ISOLATION: Readonly<
-	Record<
-		TypeOrmPolicyStoreIsolationLevel,
-		"READ UNCOMMITTED" | "READ COMMITTED" | "REPEATABLE READ" | "SERIALIZABLE"
-	>
-> = {
-	[TypeOrmPolicyStoreIsolationLevel.READ_UNCOMMITTED]: "READ UNCOMMITTED",
-	[TypeOrmPolicyStoreIsolationLevel.READ_COMMITTED]: "READ COMMITTED",
-	[TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ]: "REPEATABLE READ",
-	[TypeOrmPolicyStoreIsolationLevel.SERIALIZABLE]: "SERIALIZABLE",
-};
-
 /**
  * Default executor used when the store receives a root `DataSource` and no
  * custom executor.
@@ -92,7 +85,7 @@ export function defaultTypeOrmPolicyStoreExecutor(
 		): Promise<Result> => {
 			const runner = dataSource.createQueryRunner();
 			await runner.connect();
-			await runner.startTransaction(TYPEORM_ISOLATION[execution.isolationLevel]);
+			await runner.startTransaction(execution.isolationLevel);
 			try {
 				if (execution.access === "read-only") {
 					await runner.query("SET TRANSACTION READ ONLY");
