@@ -1,5 +1,11 @@
 # @nestm/permissions-drizzle
 
+## 0.1.0-alpha.6
+
+### Patch Changes
+
+- @nestm/permissions-core@0.1.0-alpha.6
+
 ## 0.1.0-alpha.5
 
 ### Patch Changes

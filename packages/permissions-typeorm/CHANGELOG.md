@@ -1,5 +1,17 @@
 # @nestm/permissions-typeorm
 
+## 0.1.0-alpha.6
+
+### Minor Changes
+
+- 4260113: Standardize `TypeOrmPolicyStoreIsolationLevel` on native uppercase TypeORM isolation values. Keep
+  the existing member names through a same-name constant and derived union type, allowing custom
+  executors to pass `execution.isolationLevel` directly to TypeORM without a translation map.
+
+### Patch Changes
+
+- @nestm/permissions-core@0.1.0-alpha.6
+
 ## 0.1.0-alpha.5
 
 ### Patch Changes
