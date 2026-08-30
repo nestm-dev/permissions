@@ -1,11 +1,9 @@
 import type { PolicyRecord } from "@nestm/permissions-core";
 import type { DataSource, EntityManager } from "typeorm";
-import type { IsolationLevel } from "typeorm/driver/types/IsolationLevel.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
 	TypeOrmPolicyStore,
-	TypeOrmPolicyStoreIsolationLevel,
 	type TypeOrmPolicyStoreExecution,
 	type TypeOrmPolicyStoreExecutor,
 } from "../../src/store/typeorm-policy-store.ts";
@@ -13,15 +11,6 @@ import { provisionPermissionsSchema, type ProvisionedSchema } from "../../src/te
 import { PG_SKIPPED, PG_URL, assertPostgresReachable } from "../fixtures/pg.ts";
 
 const FIXTURE_TIME = new Date("2026-08-21T00:00:00.000Z");
-
-const TYPEORM_ISOLATION: Readonly<
-	Record<TypeOrmPolicyStoreExecution["isolationLevel"], IsolationLevel>
-> = {
-	[TypeOrmPolicyStoreIsolationLevel.READ_UNCOMMITTED]: "READ UNCOMMITTED",
-	[TypeOrmPolicyStoreIsolationLevel.READ_COMMITTED]: "READ COMMITTED",
-	[TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ]: "REPEATABLE READ",
-	[TypeOrmPolicyStoreIsolationLevel.SERIALIZABLE]: "SERIALIZABLE",
-};
 
 function policy(id: string, scope: string): PolicyRecord {
 	return {
@@ -47,7 +36,7 @@ async function runTransaction<Result>(
 ): Promise<Result> {
 	const runner = dataSource.createQueryRunner();
 	await runner.connect();
-	await runner.startTransaction(TYPEORM_ISOLATION[execution.isolationLevel]);
+	await runner.startTransaction(execution.isolationLevel);
 	try {
 		if (execution.access === "read-only") {
 			await runner.query("SET TRANSACTION READ ONLY");
@@ -165,42 +154,42 @@ describe.skipIf(PG_SKIPPED)("TypeOrmPolicyStore executor", () => {
 				{
 					operation: "load",
 					access: "read-only",
-					isolationLevel: "repeatable read",
+					isolationLevel: "REPEATABLE READ",
 					commitOwnership: "not-required",
 					scopes: ["", "snapshot-scope"],
 				},
 				{
 					operation: "currentVersion",
 					access: "read-only",
-					isolationLevel: "read committed",
+					isolationLevel: "READ COMMITTED",
 					commitOwnership: "not-required",
 					scopes: ["", "snapshot-scope"],
 				},
 				{
 					operation: "save",
 					access: "read-write",
-					isolationLevel: "read committed",
+					isolationLevel: "READ COMMITTED",
 					commitOwnership: "required",
 					scopes: ["snapshot-scope", "z-scope"],
 				},
 				{
 					operation: "linkTemplate",
 					access: "read-write",
-					isolationLevel: "read committed",
+					isolationLevel: "READ COMMITTED",
 					commitOwnership: "required",
 					scopes: ["snapshot-scope"],
 				},
 				{
 					operation: "unlinkTemplate",
 					access: "read-write",
-					isolationLevel: "read committed",
+					isolationLevel: "READ COMMITTED",
 					commitOwnership: "required",
 					scopes: ["snapshot-scope"],
 				},
 				{
 					operation: "delete",
 					access: "read-write",
-					isolationLevel: "read committed",
+					isolationLevel: "READ COMMITTED",
 					commitOwnership: "required",
 					scopes: ["snapshot-scope"],
 				},
@@ -227,7 +216,7 @@ describe.skipIf(PG_SKIPPED)("TypeOrmPolicyStore executor", () => {
 			expect(executor.seenExecution).toEqual({
 				operation: "save",
 				access: "read-write",
-				isolationLevel: "read committed",
+				isolationLevel: "READ COMMITTED",
 				commitOwnership: "required",
 				scopes: ["commit-scope"],
 			});

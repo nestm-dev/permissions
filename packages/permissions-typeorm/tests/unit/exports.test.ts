@@ -16,7 +16,8 @@
 //      4.1 MiB WASM module.
 
 import { __cedarLoaded } from "@nestm/permissions-core";
-import { describe, expect, it } from "vitest";
+import type { IsolationLevel } from "typeorm/driver/types/IsolationLevel.js";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import * as barrel from "../../src/index.ts";
 import * as nestjsEntry from "../../src/nestjs.ts";
@@ -81,11 +82,20 @@ describe("barrel exports", () => {
 
 	it("exports the policy-store isolation levels", () => {
 		expect(barrel.TypeOrmPolicyStoreIsolationLevel).toEqual({
-			READ_UNCOMMITTED: "read uncommitted",
-			READ_COMMITTED: "read committed",
-			REPEATABLE_READ: "repeatable read",
-			SERIALIZABLE: "serializable",
+			READ_UNCOMMITTED: "READ UNCOMMITTED",
+			READ_COMMITTED: "READ COMMITTED",
+			REPEATABLE_READ: "REPEATABLE READ",
+			SERIALIZABLE: "SERIALIZABLE",
 		});
+	});
+
+	it("types every exported policy-store isolation value as a native TypeORM level", () => {
+		type ExportedIsolationLevel = import("../../src/index.ts").TypeOrmPolicyStoreIsolationLevel;
+
+		expectTypeOf<ExportedIsolationLevel>().toMatchTypeOf<IsolationLevel>();
+		expectTypeOf(
+			barrel.TypeOrmPolicyStoreIsolationLevel.REPEATABLE_READ,
+		).toEqualTypeOf<"REPEATABLE READ">();
 	});
 
 	it("does not instantiate the Cedar WASM", () => {
