@@ -1,6 +1,6 @@
 {
 	"name": "@nestm/permissions-drizzle",
-	"version": "0.1.0-alpha.6",
+	"version": "0.1.0-alpha.7",
 	"description": "Drizzle ORM policy store, schema factory and query-plan-to-SQL compiler for @nestm/permissions.",
 	"license": "BSD-3-Clause",
 	"author": "nestm",

@@ -1,5 +1,13 @@
 # @nestm/permissions-typeorm
 
+## 0.1.0-alpha.7
+
+### Patch Changes
+
+- 6040b98: Export `TypeOrmPolicyStoreAccess` as a runtime constant so request-aware executors can compare
+  access requirements without duplicating the policy store's string literals.
+- @nestm/permissions-core@0.1.0-alpha.7
+
 ## 0.1.0-alpha.6
 
 ### Minor Changes
