@@ -1,6 +1,6 @@
 {
 	"name": "@nestm/permissions",
-	"version": "0.1.0-alpha.5",
+	"version": "0.1.0-alpha.6",
 	"description": "Cedar-backed, policy-based authorization for NestJS 12 (ESM).",
 	"license": "BSD-3-Clause",
 	"author": "nestm",
