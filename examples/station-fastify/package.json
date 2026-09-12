@@ -20,7 +20,7 @@
 		"@nestjs/platform-fastify": "12.0.1",
 		"@nestm/permissions": "workspace:^",
 		"@nestm/permissions-core": "workspace:^",
-		"fastify": "5.12.1",
+		"fastify": "5.12.3",
 		"reflect-metadata": "0.2.2",
 		"rxjs": "7.8.2"
 	},
