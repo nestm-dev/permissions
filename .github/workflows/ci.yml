@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
       - uses: actions/setup-node@v7
@@ -42,7 +42,7 @@ jobs:
           - permissions-drizzle
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
       - uses: actions/setup-node@v7
@@ -94,7 +94,7 @@ jobs:
         adapter: [express, fastify]
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
       - uses: actions/setup-node@v7
@@ -152,7 +152,7 @@ jobs:
           --health-start-period 5s
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
       - uses: actions/setup-node@v7
@@ -170,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
       - uses: actions/setup-node@v7
@@ -233,7 +233,7 @@ jobs:
           --health-start-period 5s
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/setup@v2
+      - uses: pnpm/setup@v3
         with:
           install: false
       - uses: actions/setup-node@v7
